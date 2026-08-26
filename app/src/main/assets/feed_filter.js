@@ -2,11 +2,20 @@
 // page load. Hides feed posts whose author isn't in the user's allowed-pages list
 // (read from native via window.NativeFilter.getAllowedAuthorsJson()).
 //
-// NOTE ON SELECTORS: m.facebook.com's DOM structure and class names are not public,
-// change frequently, and were not available to inspect while writing this scaffold
-// (see PROJECT_CONTENT.md "Ρίσκο συντήρησης"). POST_SELECTOR / AUTHOR_SELECTOR below
-// are a best-effort starting point based on common mobile-FB markup patterns and will
-// need verification/adjustment against the real page on a device.
+// SELECTOR NOTES (verified on-device against the real m.facebook.com "Mbasic Lite"
+// markup, which has no semantic HTML at all — everything is a generically-classed
+// div in a component tree keyed by data-mcomponent/data-comp-id):
+//   - Every feed unit (post or ad) carries an avatar element with
+//     data-testid="post-profile-image-<n>" whose aria-label is "<Author> Profile
+//     Picture" — this is the one reasonably stable anchor found.
+//   - The scrollable feed itself is the single element with data-type="vscroller";
+//     its direct children are the top-level "rows" (header, stories, composer, and
+//     each post/ad). A post's row is found by walking up from its avatar element
+//     until the parent is the vscroller itself, regardless of how deep the avatar
+//     is nested inside that row (varies by post type: photo/video/link/shared post).
+// This is still Facebook's private, frequently-changing internal markup — expect it
+// to need re-verification (via the debug HTML-dump button, see MainActivity) if
+// filtering silently stops working again.
 (function () {
   if (window.__ffwInstalled) {
     window.__ffwRefreshAllowed && window.__ffwRefreshAllowed();
@@ -14,8 +23,8 @@
   }
   window.__ffwInstalled = true;
 
-  var POST_SELECTOR = 'article, div[data-testid="post_message"], div[role="article"]';
-  var AUTHOR_SELECTOR = 'h3 a, strong a, a[role="link"] strong';
+  var AVATAR_SELECTOR = '[data-testid^="post-profile-image-"]';
+  var NAME_SUFFIX = / Profile Picture$/;
 
   function getAllowed() {
     try {
@@ -27,40 +36,57 @@
 
   var allowed = getAllowed();
 
-  function authorNameFor(post) {
-    var el = post.querySelector(AUTHOR_SELECTOR);
-    return el ? el.textContent.trim() : null;
+  function getScroller() {
+    return document.querySelector('[data-type="vscroller"]');
   }
 
-  function applyFilterTo(root) {
-    var posts = root.querySelectorAll
-      ? root.querySelectorAll(POST_SELECTOR)
-      : [];
+  // Walks up from a post's avatar element to the row that is a direct child of the
+  // vscroller — i.e. the whole post card, however deeply the avatar sits inside it.
+  function rowRootFor(el, scroller) {
+    var node = el;
+    while (node && node.parentElement && node.parentElement !== scroller) {
+      node = node.parentElement;
+    }
+    return node && node.parentElement === scroller ? node : null;
+  }
+
+  function authorNameFor(avatarEl) {
+    var label = avatarEl.getAttribute('aria-label') || '';
+    var name = label.replace(NAME_SUFFIX, '');
+    return name && name !== label ? name.trim() : null;
+  }
+
+  function applyFilter() {
+    var scroller = getScroller();
+    if (!scroller) return;
+
+    var avatars = document.querySelectorAll(AVATAR_SELECTOR);
+    var seenRows = new Set();
     var resolvedCount = 0;
-    for (var i = 0; i < posts.length; i++) {
-      var post = posts[i];
-      var name = authorNameFor(post);
-      // Unknown author (selector didn't match): leave visible rather than risk
-      // hiding real content on a DOM shape we didn't anticipate.
+
+    for (var i = 0; i < avatars.length; i++) {
+      var row = rowRootFor(avatars[i], scroller);
+      // Not a direct feed row (e.g. an avatar inside a shared/quoted post) — the
+      // outer row's own avatar already decides visibility for the whole card.
+      if (!row || seenRows.has(row)) continue;
+      seenRows.add(row);
+
+      var name = authorNameFor(avatars[i]);
+      // Unknown author (aria-label didn't match the expected pattern): leave
+      // visible rather than risk hiding real content on an unanticipated shape.
       if (!name) continue;
       resolvedCount++;
+
       // Empty allow-list: show everything until the user configures it.
       var isAllowed = allowed.size === 0 || allowed.has(name);
       // display:none (not visibility:hidden) so hidden posts collapse fully,
       // leaving no gap in the feed, per the project's filtering requirement.
-      post.style.display = isAllowed ? '' : 'none';
+      row.style.display = isAllowed ? '' : 'none';
     }
-    // Visible in chrome://inspect's console (see MainActivity's
-    // setWebContentsDebuggingEnabled) — use this to tell whether POST_SELECTOR /
-    // AUTHOR_SELECTOR match anything on the real page.
-    console.log(
-      '[ffw] posts matched by POST_SELECTOR:', posts.length,
-      '| authors resolved by AUTHOR_SELECTOR:', resolvedCount,
-    );
-  }
 
-  function applyFilter() {
-    applyFilterTo(document);
+    // Visible in chrome://inspect's console, or via the debug HTML-dump button —
+    // use this to tell whether AVATAR_SELECTOR still matches anything.
+    console.log('[ffw] post rows matched:', seenRows.size, '| authors resolved:', resolvedCount);
   }
 
   window.__ffwRefreshAllowed = function () {
@@ -68,14 +94,15 @@
     applyFilter();
   };
 
-  var observer = new MutationObserver(function (mutations) {
-    for (var i = 0; i < mutations.length; i++) {
-      var added = mutations[i].addedNodes;
-      for (var j = 0; j < added.length; j++) {
-        var node = added[j];
-        if (node.nodeType === 1) applyFilterTo(node);
-      }
-    }
+  // The feed loads/scrolls in progressively; debounce so a burst of DOM mutations
+  // triggers one re-filter pass instead of dozens.
+  var pending = null;
+  var observer = new MutationObserver(function () {
+    if (pending) return;
+    pending = requestAnimationFrame(function () {
+      pending = null;
+      applyFilter();
+    });
   });
   observer.observe(document.body, { childList: true, subtree: true });
 
