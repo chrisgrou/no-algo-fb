@@ -26,4 +26,12 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     fun removePage(name: String) {
         viewModelScope.launch { repository.removePage(name) }
     }
+
+    fun editPage(oldName: String, newName: String) {
+        if (oldName == newName) return
+        viewModelScope.launch {
+            repository.removePage(oldName)
+            repository.addPage(newName)
+        }
+    }
 }

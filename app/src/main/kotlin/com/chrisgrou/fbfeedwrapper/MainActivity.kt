@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -42,7 +41,6 @@ import com.chrisgrou.fbfeedwrapper.filter.FeedFilterBridge
 import com.chrisgrou.fbfeedwrapper.settings.SettingsScreen
 import com.chrisgrou.fbfeedwrapper.settings.SettingsViewModel
 import com.chrisgrou.fbfeedwrapper.sync.SourceSyncScreen
-import com.chrisgrou.fbfeedwrapper.update.UpdateDialogHost
 import com.chrisgrou.fbfeedwrapper.update.UpdateViewModel
 import org.json.JSONTokener
 
@@ -83,9 +81,10 @@ private fun App(
     onWebViewCreated: (WebView) -> Unit,
 ) {
     var screen by remember { mutableStateOf(Screen.Feed) }
-    // Activity-scoped, so the sync screen's results land in the same list the settings
-    // screen is showing.
+    // Activity-scoped, so results (list edits, sync imports, an update check) land
+    // wherever the app navigates back to afterwards.
     val settingsViewModel: SettingsViewModel = viewModel()
+    val updateViewModel: UpdateViewModel = viewModel()
 
     when (screen) {
         Screen.Feed -> FbWebViewScreen(
@@ -97,7 +96,8 @@ private fun App(
         Screen.Settings -> SettingsScreen(
             onBack = { screen = Screen.Feed },
             onOpenSync = { screen = Screen.Sync },
-            viewModel = settingsViewModel,
+            settingsViewModel = settingsViewModel,
+            updateViewModel = updateViewModel,
         )
         Screen.Sync -> SourceSyncScreen(
             onCancel = { screen = Screen.Settings },
@@ -115,7 +115,6 @@ private fun FbWebViewScreen(
     restoredState: Bundle?,
     onWebViewCreated: (WebView) -> Unit,
     onOpenSettings: () -> Unit,
-    updateViewModel: UpdateViewModel = viewModel(),
     settingsViewModel: SettingsViewModel = viewModel(),
 ) {
     val context = LocalContext.current
@@ -174,6 +173,8 @@ private fun FbWebViewScreen(
             },
         )
 
+        // Only the settings icon on the front screen — updating, syncing, and editing
+        // the allow-list all live inside Settings now.
         Row(
             modifier = Modifier
                 .align(Alignment.TopEnd)
@@ -182,21 +183,13 @@ private fun FbWebViewScreen(
             IconButton(onClick = onOpenSettings) {
                 Icon(
                     imageVector = Icons.Filled.Settings,
-                    contentDescription = "Ρυθμίσεις φιλτραρίσματος",
+                    contentDescription = "Ρυθμίσεις",
                     tint = MaterialTheme.colorScheme.primary,
                 )
             }
-            IconButton(onClick = updateViewModel::checkForUpdate) {
-                Icon(
-                    imageVector = Icons.Filled.SystemUpdate,
-                    contentDescription = "Έλεγχος για ενημερώσεις",
-                    tint = MaterialTheme.colorScheme.primary,
-                )
-            }
-            // Debug-only: saves the HTML of whatever is on screen right now to a file
-            // and opens the share sheet for it, so the real feed_filter.js selectors
-            // can be worked out from a phone alone, without a desktop chrome://inspect
-            // connection or the clipboard's size limits.
+            // Debug-only developer tool, not a user-facing option: it needs the live
+            // feed WebView, which only exists on this screen, so it stays here rather
+            // than moving into Settings with everything else.
             if (BuildConfig.DEBUG) {
                 IconButton(onClick = {
                     val web = webViewRef ?: return@IconButton
@@ -239,7 +232,5 @@ private fun FbWebViewScreen(
                     .padding(8.dp),
             )
         }
-
-        UpdateDialogHost(updateViewModel)
     }
 }
