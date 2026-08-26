@@ -42,6 +42,17 @@
   // Separate from HIDDEN_ATTR because gap marks are recomputed from scratch on every
   // pass: an empty band can fill with lazy-loaded content later and must come back.
   var GAP_ATTR = 'data-ffw-gap';
+  // A post already decided doesn't need re-deciding on every scroll-triggered pass —
+  // only on a full re-check (the allow-list changed). Infinite scroll on a long feed
+  // was re-running sourceNameFor/hide/collapse over every earlier post on every batch
+  // of newly-loaded content, each involving getBoundingClientRect (forces layout) and
+  // DOM queries; on a 100+ post feed that repeated, compounding cost is what made pull-
+  // to-refresh and opening a post feel like they'd hung.
+  var DECIDED_ATTR = 'data-ffw-decided';
+  // A scroller child already confirmed to render real content: skips collapseGaps'
+  // isVisuallyEmpty check (itself a layout read plus a media query) on every pass for
+  // the bulk of the feed, which never becomes empty once it has rendered.
+  var HAS_CONTENT_ATTR = 'data-ffw-has-content';
 
   if (!document.getElementById('ffw-style')) {
     var style = document.createElement('style');
@@ -151,16 +162,26 @@
     var collapsed = 0;
     for (var j = 0; j < scroller.children.length; j++) {
       var child = scroller.children[j];
-      if (child.hasAttribute(HIDDEN_ATTR)) continue;
+      if (child.hasAttribute(HIDDEN_ATTR) || child.hasAttribute(HAS_CONTENT_ATTR)) continue;
       if (child.getBoundingClientRect().height < 40) continue;
-      if (!isVisuallyEmpty(child)) continue;
+      if (!isVisuallyEmpty(child)) {
+        // Real content doesn't later become empty, so this child never needs
+        // re-checking again — the expensive part of every subsequent pass.
+        child.setAttribute(HAS_CONTENT_ATTR, '1');
+        continue;
+      }
       child.setAttribute(GAP_ATTR, '1');
       collapsed++;
     }
     return collapsed;
   }
 
-  function applyFilter() {
+  // force=true (only from __ffwRefreshAllowed) re-decides every post, since a changed
+  // allow-list can flip a decision already marked DECIDED_ATTR. Everything else — new
+  // content streaming in from a scroll or pull-to-refresh — only has new posts to
+  // decide; the rest already carry their mark from a previous pass and are skipped
+  // outright, without even reading their source name.
+  function applyFilter(force) {
     var posts = document.querySelectorAll(POST_SELECTOR);
     var considered = 0;
     var resolved = 0;
@@ -170,16 +191,17 @@
     var hiddenPosts = [];
     var scroller = null;
 
-    // Pass 1 — decide every post. The wrapper cleanup has to wait until this is done,
-    // since a wrapper holding two unwanted posts only reads as empty once both are
-    // marked.
+    // Pass 1 — decide undecided posts. The wrapper cleanup has to wait until this is
+    // done, since a wrapper holding two unwanted posts only reads as empty once both
+    // are marked.
     for (var i = 0; i < posts.length; i++) {
       var post = posts[i];
       // Nested container (a shared/quoted post inside another): the outermost one
       // decides for the whole card.
       if (post.parentElement && post.parentElement.closest(POST_SELECTOR)) continue;
-      considered++;
       if (!scroller) scroller = post.closest(SCROLLER_SELECTOR);
+      if (!force && post.hasAttribute(DECIDED_ATTR)) continue;
+      considered++;
 
       var name = sourceNameFor(post);
       // Unknown source: leave visible rather than hide content on a shape we didn't
@@ -190,6 +212,7 @@
         continue;
       }
       resolved++;
+      post.setAttribute(DECIDED_ATTR, '1');
 
       // Empty allow-list: show everything until the user configures it.
       if (allowed.size === 0 || allowed.has(name)) {
@@ -218,7 +241,7 @@
 
   window.__ffwRefreshAllowed = function () {
     allowed = getAllowed();
-    applyFilter();
+    applyFilter(true);
   };
 
   // The feed loads/scrolls in progressively; debounce so a burst of DOM mutations
