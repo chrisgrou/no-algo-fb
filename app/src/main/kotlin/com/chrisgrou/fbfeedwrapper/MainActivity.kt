@@ -7,6 +7,7 @@ import android.webkit.CookieManager
 import android.webkit.WebView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -120,6 +121,7 @@ private fun FbWebViewScreen(
     val context = LocalContext.current
     val filterBridge = remember { FeedFilterBridge() }
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
+    var canGoBack by remember { mutableStateOf(false) }
     val allowedPages by settingsViewModel.allowedPages.collectAsState()
     val filterStats by filterBridge.stats.collectAsState()
 
@@ -128,6 +130,14 @@ private fun FbWebViewScreen(
     LaunchedEffect(allowedPages) {
         filterBridge.allowedAuthors = allowedPages
         webViewRef?.evaluateJavascript(REFRESH_FILTER_JS, null)
+    }
+
+    // Without this, the system back gesture has nothing registered to intercept it, so
+    // it falls straight through to the default (exit the app) instead of stepping back
+    // through the page the user was just on — opening a post, going back, and getting
+    // dumped on the Android home screen instead of the feed.
+    BackHandler(enabled = canGoBack) {
+        webViewRef?.goBack()
     }
 
     Box(Modifier.fillMaxSize()) {
@@ -159,7 +169,9 @@ private fun FbWebViewScreen(
                     cookieManager.setAcceptThirdPartyCookies(this, true)
 
                     addJavascriptInterface(filterBridge, "NativeFilter")
-                    webViewClient = FbWebViewClient()
+                    webViewClient = FbWebViewClient(onHistoryChanged = { view ->
+                        canGoBack = view.canGoBack()
+                    })
 
                     onWebViewCreated(this)
                     webViewRef = this
