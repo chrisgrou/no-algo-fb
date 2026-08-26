@@ -80,6 +80,41 @@ const val DUMP_FILTER_REPORT_JS = """
 })();
 """
 
+/**
+ * Diagnostic for the nav-bar override (nav_override.js): dumps whatever candidate
+ * elements it would consider for "the Marketplace tab" so a real-device capture shows
+ * why the relabelling isn't finding/matching it, instead of guessing blind at
+ * selectors again.
+ */
+const val DUMP_NAV_REPORT_JS = """
+(function () {
+  var lines = ['===== NAV BAR DIAGNOSTIC ====='];
+  var tabs = document.querySelectorAll('[role="tab"]');
+  lines.push('[role="tab"] COUNT: ' + tabs.length);
+  for (var i = 0; i < tabs.length; i++) {
+    var t = tabs[i];
+    lines.push('  [' + i + '] aria-label="' + (t.getAttribute('aria-label') || '') + '" tag=' + t.tagName);
+  }
+  lines.push('');
+  var mkt = [];
+  document.querySelectorAll('[aria-label]').forEach(function (el) {
+    var l = (el.getAttribute('aria-label') || '').toLowerCase();
+    if (l.indexOf('marketplace') !== -1) mkt.push(el);
+  });
+  lines.push('[aria-label*="marketplace"] COUNT: ' + mkt.length);
+  for (var j = 0; j < mkt.length; j++) {
+    lines.push('  [' + j + '] tag=' + mkt[j].tagName + ' role=' + mkt[j].getAttribute('role') +
+      ' aria-label="' + mkt[j].getAttribute('aria-label') + '"');
+    lines.push('  outerHTML: ' + mkt[j].outerHTML.substring(0, 1500));
+    lines.push('');
+  }
+  if (mkt.length === 0) {
+    lines.push('(no element anywhere on the page has an aria-label containing "marketplace")');
+  }
+  return lines.join('\n');
+})();
+"""
+
 /** Writes the debug capture to a cache file and opens the system share sheet for it, so
  *  it can be sent anywhere (email, messaging, "save to files") without the clipboard's
  *  size limits. */
