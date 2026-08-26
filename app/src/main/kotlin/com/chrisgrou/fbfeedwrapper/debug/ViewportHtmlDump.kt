@@ -35,18 +35,70 @@ const val DUMP_VIEWPORT_HTML_JS = """
 })();
 """
 
-/** Writes [html] to a cache file and opens the system share sheet for it, so it can be
- *  sent anywhere (email, messaging, "save to files") without the clipboard's size limits. */
-fun shareHtmlDump(context: Context, html: String) {
+/**
+ * Per-post report of what the filter actually sees and does: the avatar's aria-label,
+ * the author name derived from it, whether that name is in the allow-list, and the
+ * rects of both the avatar and the row we picked. Four hiding mechanisms in a row have
+ * reported success while posts stayed on screen, so this replaces guessing about the
+ * cause with the ground truth of what the running filter reads for each post.
+ *
+ * Prepended to the HTML capture rather than shipped separately so one shared file
+ * carries both the decisions and the markup they were made from.
+ */
+const val DUMP_FILTER_REPORT_JS = """
+(function () {
+  var AV = '[data-testid^="post-profile-image-"]';
+  var SC = '[data-type="vscroller"]';
+  var allowed = [];
+  try { allowed = JSON.parse(window.NativeFilter.getAllowedAuthorsJson()); } catch (e) {}
+  var lines = ['ALLOW-LIST: ' + JSON.stringify(allowed), ''];
+  var avatars = document.querySelectorAll(AV);
+  lines.push('AVATARS FOUND: ' + avatars.length);
+  lines.push('SCROLLERS FOUND: ' + document.querySelectorAll(SC).length);
+  lines.push('');
+  for (var i = 0; i < avatars.length; i++) {
+    var a = avatars[i];
+    var label = a.getAttribute('aria-label') || '(none)';
+    var name = label.replace(/ Profile Picture${'$'}/, '');
+    var scroller = a.closest(SC);
+    var row = null;
+    if (scroller) {
+      var n = a;
+      while (n && n.parentElement && n.parentElement !== scroller) n = n.parentElement;
+      row = (n && n.parentElement === scroller) ? n : null;
+    }
+    var ar = a.getBoundingClientRect();
+    var rr = row ? row.getBoundingClientRect() : null;
+    lines.push('[' + i + '] testid=' + a.getAttribute('data-testid'));
+    lines.push('    aria-label = "' + label + '"');
+    lines.push('    derived    = "' + name + '"  allowed=' + (allowed.indexOf(name) >= 0));
+    lines.push('    avatar rect: top=' + Math.round(ar.top) + ' w=' + Math.round(ar.width) + ' h=' + Math.round(ar.height));
+    lines.push('    row found  : ' + (row ? 'yes' : 'NO') +
+      (rr ? (' rect top=' + Math.round(rr.top) + ' w=' + Math.round(rr.width) + ' h=' + Math.round(rr.height)) : '') +
+      (row ? (' hiddenAttr=' + row.getAttribute('data-ffw-hidden') + ' display=' + getComputedStyle(row).display) : ''));
+    // The text near the avatar is what the user actually reads as the post's source;
+    // if it differs from the aria-label, that mismatch is the bug.
+    var header = a.parentElement && a.parentElement.parentElement;
+    if (header) lines.push('    header text: "' + (header.innerText || '').replace(/\s+/g, ' ').substring(0, 120) + '"');
+    lines.push('');
+  }
+  return lines.join('\n');
+})();
+"""
+
+/** Writes the debug capture to a cache file and opens the system share sheet for it, so
+ *  it can be sent anywhere (email, messaging, "save to files") without the clipboard's
+ *  size limits. */
+fun shareHtmlDump(context: Context, report: String, html: String) {
     val dir = File(context.cacheDir, "debug").apply { mkdirs() }
-    val file = File(dir, "feed_dump_${System.currentTimeMillis()}.html")
-    file.writeText(html)
+    val file = File(dir, "feed_dump_${System.currentTimeMillis()}.txt")
+    file.writeText("===== FILTER REPORT =====\n\n$report\n\n===== VIEWPORT HTML =====\n\n$html")
 
     val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
     val intent = Intent(Intent.ACTION_SEND).apply {
-        type = "text/html"
+        type = "text/plain"
         putExtra(Intent.EXTRA_STREAM, uri)
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
     }
-    context.startActivity(Intent.createChooser(intent, "Αποστολή feed HTML dump").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    context.startActivity(Intent.createChooser(intent, "Αποστολή feed debug dump").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
 }

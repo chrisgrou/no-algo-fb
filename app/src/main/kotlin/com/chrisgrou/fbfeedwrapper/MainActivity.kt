@@ -35,6 +35,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.chrisgrou.fbfeedwrapper.debug.DUMP_FILTER_REPORT_JS
 import com.chrisgrou.fbfeedwrapper.debug.DUMP_VIEWPORT_HTML_JS
 import com.chrisgrou.fbfeedwrapper.debug.shareHtmlDump
 import com.chrisgrou.fbfeedwrapper.filter.FeedFilterBridge
@@ -182,13 +183,19 @@ private fun FbWebViewScreen(
             // connection or the clipboard's size limits.
             if (BuildConfig.DEBUG) {
                 IconButton(onClick = {
-                    webViewRef?.evaluateJavascript(DUMP_VIEWPORT_HTML_JS) { result ->
-                        val html = runCatching { JSONTokener(result).nextValue() as String }.getOrNull()
-                        if (html.isNullOrBlank()) {
-                            Toast.makeText(context, "Δεν βρέθηκε περιεχόμενο", Toast.LENGTH_SHORT).show()
-                            return@evaluateJavascript
+                    val web = webViewRef ?: return@IconButton
+                    web.evaluateJavascript(DUMP_FILTER_REPORT_JS) { reportResult ->
+                        val report = runCatching { JSONTokener(reportResult).nextValue() as String }
+                            .getOrNull().orEmpty()
+                        web.evaluateJavascript(DUMP_VIEWPORT_HTML_JS) { htmlResult ->
+                            val html = runCatching { JSONTokener(htmlResult).nextValue() as String }
+                                .getOrNull().orEmpty()
+                            if (report.isBlank() && html.isBlank()) {
+                                Toast.makeText(context, "Δεν βρέθηκε περιεχόμενο", Toast.LENGTH_SHORT).show()
+                                return@evaluateJavascript
+                            }
+                            shareHtmlDump(context, report, html)
                         }
-                        shareHtmlDump(context, html)
                     }
                 }) {
                     Icon(
