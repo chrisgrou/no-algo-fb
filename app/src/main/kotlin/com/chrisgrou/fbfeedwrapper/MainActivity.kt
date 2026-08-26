@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -39,6 +38,7 @@ import com.chrisgrou.fbfeedwrapper.debug.DUMP_FILTER_REPORT_JS
 import com.chrisgrou.fbfeedwrapper.debug.DUMP_VIEWPORT_HTML_JS
 import com.chrisgrou.fbfeedwrapper.debug.shareHtmlDump
 import com.chrisgrou.fbfeedwrapper.filter.FeedFilterBridge
+import com.chrisgrou.fbfeedwrapper.nav.NavigationBridge
 import com.chrisgrou.fbfeedwrapper.scroll.ScrollPositionBridge
 import com.chrisgrou.fbfeedwrapper.settings.SettingsScreen
 import com.chrisgrou.fbfeedwrapper.settings.SettingsViewModel
@@ -122,6 +122,7 @@ private fun FbWebViewScreen(
     val context = LocalContext.current
     val filterBridge = remember { FeedFilterBridge() }
     val scrollBridge = remember { ScrollPositionBridge(context) }
+    val navBridge = remember { NavigationBridge(onOpenSettings = onOpenSettings) }
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
     var canGoBack by remember { mutableStateOf(false) }
     val allowedPages by settingsViewModel.allowedPages.collectAsState()
@@ -172,6 +173,7 @@ private fun FbWebViewScreen(
 
                     addJavascriptInterface(filterBridge, "NativeFilter")
                     addJavascriptInterface(scrollBridge, "NativeScroll")
+                    addJavascriptInterface(navBridge, "NativeNav")
                     webViewClient = FbWebViewClient(onHistoryChanged = { view ->
                         canGoBack = view.canGoBack()
                     })
@@ -188,28 +190,23 @@ private fun FbWebViewScreen(
             },
         )
 
-        // Only shown at the top level of the feed, not while the user has navigated
-        // into a photo/video/post/comments view: those have their own close, share,
-        // and reaction controls at every edge of the screen (confirmed by an on-device
-        // screenshot — our top-right icons sat directly on the photo viewer's own
+        // Settings is reached through Facebook's own tab bar now (its Marketplace tab,
+        // relabelled — see nav_override.js/NavigationBridge), not a floating overlay:
+        // that tab bar survives Facebook's own pull-to-refresh navigation, whereas the
+        // old canGoBack-based overlay icon didn't (pull-to-refresh flipped canGoBack
+        // and never flipped it back, permanently hiding the icon even on the base feed).
+        //
+        // The debug capture icon below is still gated on canGoBack, since it's only
+        // useful at the top level of the feed: a photo/video/post/comments view has its
+        // own close, share, and reaction controls at every edge of the screen (confirmed
+        // by an on-device screenshot — this icon sat directly on the photo viewer's own
         // controls there), and there is no corner that's safe across every such view.
-        // canGoBack (see the BackHandler wiring) is exactly "have we navigated away
-        // from the feed", so it doubles as the signal for this.
         if (!canGoBack) {
-            // Only the settings icon on the front screen — updating, syncing, and
-            // editing the allow-list all live inside Settings now.
             Row(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .padding(8.dp),
             ) {
-                IconButton(onClick = onOpenSettings) {
-                    Icon(
-                        imageVector = Icons.Filled.Settings,
-                        contentDescription = "Ρυθμίσεις",
-                        tint = MaterialTheme.colorScheme.primary,
-                    )
-                }
                 // Debug-only developer tool, not a user-facing option: it needs the
                 // live feed WebView, which only exists on this screen, so it stays
                 // here rather than moving into Settings with everything else.
