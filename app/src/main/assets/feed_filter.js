@@ -12,13 +12,17 @@
 //     its direct children are the top-level "rows" (header, stories, composer, and
 //     each post/ad).
 //
-// HIDING STRATEGY: two earlier attempts (row.style.display, then a data-attribute
-// plus a stylesheet rule) both reported the right rows as hidden while nothing
-// actually disappeared — this framework re-renders rows and drops whatever we write
-// onto the element. So the primary mechanism is now a single purely declarative CSS
-// rule using :has(), which keeps working no matter how often the framework rebuilds
-// a row, since nothing of ours has to survive on the element itself. The per-element
-// attribute is still set as a fallback for WebViews without :has() support.
+// HIDING STRATEGY: three attempts failed before this one. The decisive measurement
+// was the third: every row we'd picked reported computed display:none (59 of 59) and
+// yet all those posts stayed fully visible. So the CSS was always being applied fine
+// — the element we called "the row" simply isn't what paints the post.
+//
+// Rather than keep guessing which ancestor is the real post card, hiding is now
+// self-correcting and verified against layout, not style: mark the candidate, then
+// measure whether the avatar still occupies space, and if it does, climb one parent
+// at a time until it genuinely doesn't. The climb stops at the scroller, so a
+// mis-climb can never blank the whole feed. The declarative :has() rule is kept as a
+// first line of defence since it survives row re-renders on its own.
 (function () {
   if (window.__ffwInstalled) {
     window.__ffwRefreshAllowed && window.__ffwRefreshAllowed();
@@ -27,6 +31,7 @@
   window.__ffwInstalled = true;
 
   var AVATAR_SELECTOR = '[data-testid^="post-profile-image-"]';
+  var SCROLLER_SELECTOR = '[data-type="vscroller"]';
   var NAME_SUFFIX = / Profile Picture$/;
   var HIDDEN_ATTR = 'data-ffw-hidden';
   var HAS_SUPPORT = (function () {
@@ -66,7 +71,7 @@
   // avatar of an allowed author." Purely declarative, so re-renders can't undo it.
   function buildRule() {
     if (!allowedList.length) return '[' + HIDDEN_ATTR + '="1"]{display:none !important;}';
-    var rule = '[data-type="vscroller"] > *:has(' + AVATAR_SELECTOR + ')';
+    var rule = SCROLLER_SELECTOR + ' > *:has(' + AVATAR_SELECTOR + ')';
     for (var i = 0; i < allowedList.length; i++) {
       rule += ':not(:has([aria-label="' + cssString(allowedList[i]) + ' Profile Picture"]))';
     }
@@ -78,8 +83,10 @@
     styleEl().textContent = buildRule();
   }
 
-  function getScroller() {
-    return document.querySelector('[data-type="vscroller"]');
+  // Each avatar's own nearest scroller ancestor, rather than the document's first
+  // one: nothing guarantees the page keeps a single feed container.
+  function scrollerFor(el) {
+    return el.closest(SCROLLER_SELECTOR);
   }
 
   // Walks up from a post's avatar element to the row that is a direct child of the
@@ -98,47 +105,90 @@
     return name && name !== label ? name.trim() : null;
   }
 
-  function applyFilter() {
-    var scroller = getScroller();
-    if (!scroller) return;
+  // Whether an element still occupies space on screen. This — not the row's computed
+  // style — is the only trustworthy check: a previous attempt had every row we picked
+  // reporting display:none while the posts stayed fully visible, i.e. the row we
+  // picked was not what actually paints.
+  function occupiesSpace(el) {
+    var rect = el.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0;
+  }
 
+  // Guards the climb: an ancestor that also contains an allowed author's post must
+  // never be hidden, or one unwanted post would take a wanted one down with it.
+  function containsAllowedAvatar(node) {
+    if (allowed.size === 0) return false;
+    var list = node.querySelectorAll(AVATAR_SELECTOR);
+    for (var k = 0; k < list.length; k++) {
+      var n = authorNameFor(list[k]);
+      if (n && allowed.has(n)) return true;
+    }
+    return false;
+  }
+
+  // Hides the post by climbing from its avatar until the avatar genuinely stops
+  // occupying space, instead of trusting any one ancestor to be "the row". Stops at
+  // the scroller, and at any ancestor holding allowed content, so a mis-climb can
+  // never blank the whole feed or a post the user asked to see.
+  function hideFrom(avatar, row, scroller) {
+    if (row && !containsAllowedAvatar(row)) {
+      row.setAttribute(HIDDEN_ATTR, '1');
+      if (!occupiesSpace(avatar)) return true;
+    }
+    var node = avatar;
+    var guard = 0;
+    while (node && node !== scroller && node !== document.body && guard++ < 25) {
+      if (containsAllowedAvatar(node)) return false;
+      node.setAttribute(HIDDEN_ATTR, '1');
+      if (!occupiesSpace(avatar)) return true;
+      node = node.parentElement;
+    }
+    return false;
+  }
+
+  function unhideFrom(avatar, row, scroller) {
+    if (row) row.removeAttribute(HIDDEN_ATTR);
+    var node = avatar;
+    var guard = 0;
+    while (node && node !== scroller && node !== document.body && guard++ < 25) {
+      node.removeAttribute(HIDDEN_ATTR);
+      node = node.parentElement;
+    }
+  }
+
+  function applyFilter() {
     var avatars = document.querySelectorAll(AVATAR_SELECTOR);
     var seenRows = new Set();
     var resolvedCount = 0;
     var hiddenCount = 0;
-    var hiddenRows = [];
+    var verifiedHidden = 0;
 
     for (var i = 0; i < avatars.length; i++) {
-      var row = rowRootFor(avatars[i], scroller);
-      // Not a direct feed row (e.g. an avatar inside a shared/quoted post) — the
-      // outer row's own avatar already decides visibility for the whole card.
-      if (!row || seenRows.has(row)) continue;
-      seenRows.add(row);
+      var avatar = avatars[i];
+      var scroller = scrollerFor(avatar);
+      if (!scroller) continue;
 
-      var name = authorNameFor(avatars[i]);
+      var row = rowRootFor(avatar, scroller);
+      // Dedupe by row where we found one (e.g. an avatar inside a shared/quoted post
+      // shouldn't re-decide its container's visibility).
+      if (row) {
+        if (seenRows.has(row)) continue;
+        seenRows.add(row);
+      }
+
+      var name = authorNameFor(avatar);
       // Unknown author (aria-label didn't match the expected pattern): leave
       // visible rather than risk hiding real content on an unanticipated shape.
       if (!name) continue;
       resolvedCount++;
 
       // Empty allow-list: show everything until the user configures it.
-      var isAllowed = allowed.size === 0 || allowed.has(name);
-      if (isAllowed) {
-        row.removeAttribute(HIDDEN_ATTR);
+      if (allowed.size === 0 || allowed.has(name)) {
+        unhideFrom(avatar, row, scroller);
       } else {
         hiddenCount++;
-        hiddenRows.push(row);
-        row.setAttribute(HIDDEN_ATTR, '1');
+        if (hideFrom(avatar, row, scroller)) verifiedHidden++;
       }
-    }
-
-    // Diagnostics: of the rows we decided to hide, how many are actually rendered as
-    // display:none right now? A hiddenCount far above verifiedHidden means the page
-    // is winning the fight over those elements, and the mechanism — not the
-    // selectors — is what still needs work.
-    var verifiedHidden = 0;
-    for (var j = 0; j < hiddenRows.length; j++) {
-      if (getComputedStyle(hiddenRows[j]).display === 'none') verifiedHidden++;
     }
 
     console.log('[ffw] rows:', seenRows.size, '| authors:', resolvedCount,
