@@ -4,11 +4,16 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -21,3 +26,39 @@ jobs:
 
       - name: Build debug APK
         run: ./gradlew assembleDebug --stacktrace
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: fbfeedwrapper-debug
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+
+      # Powers the in-app update check (top-right icon in MainActivity): the app
+      # polls this fixed "latest" release's tag/assets, so every push to a branch
+      # replaces it rather than accumulating a release per commit.
+      - name: Publish "latest" release for in-app updates
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          apk_src=$(ls app/build/outputs/apk/debug/*.apk | head -n1)
+          apk_name="fbfeedwrapper-${GITHUB_RUN_NUMBER}.apk"
+          cp "$apk_src" "$apk_name"
+
+          before="${{ github.event.before }}"
+          if [ -n "$before" ] && [ "$before" != "0000000000000000000000000000000000000000" ] && git cat-file -e "$before" 2>/dev/null; then
+            changelog=$(git log --pretty=format:"- %s" "$before"..${{ github.sha }})
+          fi
+          if [ -z "$changelog" ]; then
+            changelog=$(git log -1 --pretty=format:"- %s" ${{ github.sha }})
+          fi
+          notes=$(printf 'Build #%s\n\n%s' "$GITHUB_RUN_NUMBER" "$changelog")
+
+          gh release delete latest --yes --cleanup-tag -R "${{ github.repository }}" || true
+          gh release create latest "$apk_name" \
+            -R "${{ github.repository }}" \
+            --title "Latest build (#${GITHUB_RUN_NUMBER})" \
+            --notes "$notes" \
+            --prerelease \
+            --target "${{ github.sha }}"
