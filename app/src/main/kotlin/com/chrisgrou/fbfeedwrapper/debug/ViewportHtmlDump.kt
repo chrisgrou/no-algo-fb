@@ -94,8 +94,9 @@ const val DUMP_NAV_REPORT_JS = """
   for (var i = 0; i < tabs.length; i++) {
     var t = tabs[i];
     lines.push('  [' + i + '] aria-label="' + (t.getAttribute('aria-label') || '') + '" tag=' + t.tagName);
+    lines.push('  outerHTML: ' + t.outerHTML.substring(0, 3000));
+    lines.push('');
   }
-  lines.push('');
   var mkt = [];
   document.querySelectorAll('[aria-label]').forEach(function (el) {
     var l = (el.getAttribute('aria-label') || '').toLowerCase();
