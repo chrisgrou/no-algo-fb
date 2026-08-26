@@ -39,11 +39,15 @@
   var LINK_SELECTOR = '[role="link"]';
   var NAME_SUFFIX = / Profile Picture$/;
   var HIDDEN_ATTR = 'data-ffw-hidden';
+  // Separate from HIDDEN_ATTR because gap marks are recomputed from scratch on every
+  // pass: an empty band can fill with lazy-loaded content later and must come back.
+  var GAP_ATTR = 'data-ffw-gap';
 
   if (!document.getElementById('ffw-style')) {
     var style = document.createElement('style');
     style.id = 'ffw-style';
-    style.textContent = '[' + HIDDEN_ATTR + '="1"]{display:none !important;}';
+    style.textContent =
+      '[' + HIDDEN_ATTR + '="1"],[' + GAP_ATTR + '="1"]{display:none !important;}';
     (document.head || document.documentElement).appendChild(style);
   }
 
@@ -121,18 +125,30 @@
     }
   }
 
-  // Empty bands left over between posts that aren't ancestors of anything we hid —
-  // measured rather than assumed, so "the gap is still there" stops being guesswork.
-  function countGaps(scroller) {
+  // Collapses empty bands sitting directly in the feed. These aren't ancestors of the
+  // posts we hid — measuring showed two of them surviving the ancestor cleanup — but
+  // siblings of them: spacers the framework sized for content that is no longer shown.
+  //
+  // Marks are cleared and recomputed every pass, so a band that later fills with
+  // lazy-loaded content reappears instead of staying collapsed forever. Only direct
+  // children of the scroller are considered: that is the granularity of a band between
+  // posts, and going deeper risks collapsing deliberate spacing inside a visible post.
+  function collapseGaps(scroller) {
     if (!scroller) return 0;
-    var gaps = 0;
-    for (var i = 0; i < scroller.children.length; i++) {
-      var child = scroller.children[i];
+
+    var stale = scroller.querySelectorAll('[' + GAP_ATTR + '="1"]');
+    for (var i = 0; i < stale.length; i++) stale[i].removeAttribute(GAP_ATTR);
+
+    var collapsed = 0;
+    for (var j = 0; j < scroller.children.length; j++) {
+      var child = scroller.children[j];
       if (child.hasAttribute(HIDDEN_ATTR)) continue;
       if (child.getBoundingClientRect().height < 40) continue;
-      if (isVisuallyEmpty(child)) gaps++;
+      if (!isVisuallyEmpty(child)) continue;
+      child.setAttribute(GAP_ATTR, '1');
+      collapsed++;
     }
-    return gaps;
+    return collapsed;
   }
 
   function applyFilter() {
@@ -182,11 +198,13 @@
       if (!occupiesSpace(hiddenPosts[j])) verifiedHidden++;
     }
 
-    var gaps = countGaps(scroller);
+    var gapsCollapsed = collapseGaps(scroller);
     console.log('[ffw] posts:', considered, '| sources:', resolved, '| hidden:', hiddenCount,
-      '| verified:', verifiedHidden, '| unresolved-visible:', unresolvedVisible, '| gaps:', gaps);
+      '| verified:', verifiedHidden, '| unresolved-visible:', unresolvedVisible,
+      '| gaps collapsed:', gapsCollapsed);
     window.NativeFilter && window.NativeFilter.reportStats &&
-      window.NativeFilter.reportStats(considered, resolved, hiddenCount, verifiedHidden, unresolvedVisible, gaps);
+      window.NativeFilter.reportStats(
+        considered, resolved, hiddenCount, verifiedHidden, unresolvedVisible, gapsCollapsed);
   }
 
   window.__ffwRefreshAllowed = function () {

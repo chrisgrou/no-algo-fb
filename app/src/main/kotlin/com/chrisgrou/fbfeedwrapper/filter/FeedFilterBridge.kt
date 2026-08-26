@@ -13,8 +13,8 @@ data class FilterStats(
     val verifiedHidden: Int,
     /** Posts still on screen whose source name couldn't be read — the leak to watch. */
     val unresolvedVisible: Int,
-    /** Empty bands left in the feed that aren't accounted for by a hidden post. */
-    val gaps: Int,
+    /** Empty bands between posts that this pass collapsed. */
+    val gapsCollapsed: Int,
 )
 
 /**
@@ -43,9 +43,10 @@ class FeedFilterBridge {
         hiddenCount: Int,
         verifiedHidden: Int,
         unresolvedVisible: Int,
-        gaps: Int,
+        gapsCollapsed: Int,
     ) {
-        _stats.value =
-            FilterStats(rowsMatched, authorsResolved, hiddenCount, verifiedHidden, unresolvedVisible, gaps)
+        _stats.value = FilterStats(
+            rowsMatched, authorsResolved, hiddenCount, verifiedHidden, unresolvedVisible, gapsCollapsed,
+        )
     }
 }

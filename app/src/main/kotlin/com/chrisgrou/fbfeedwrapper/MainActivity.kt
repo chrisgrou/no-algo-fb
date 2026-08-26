@@ -229,7 +229,7 @@ private fun FbWebViewScreen(
             Text(
                 text = filterStats?.let {
                     "posts=${it.rowsMatched} src=${it.authorsResolved} hid=${it.hiddenCount} " +
-                        "ok=${it.verifiedHidden} leak=${it.unresolvedVisible} gaps=${it.gaps} " +
+                        "ok=${it.verifiedHidden} leak=${it.unresolvedVisible} gapfix=${it.gapsCollapsed} " +
                         "allow=${allowedPages.size}"
                 } ?: "filter: no data yet",
                 color = Color.White,
