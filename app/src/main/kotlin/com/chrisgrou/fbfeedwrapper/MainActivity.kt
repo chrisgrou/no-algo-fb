@@ -1,9 +1,6 @@
 package com.chrisgrou.fbfeedwrapper
 
 import android.annotation.SuppressLint
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.content.Context
 import android.os.Bundle
 import android.view.ViewGroup
 import android.webkit.CookieManager
@@ -36,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.chrisgrou.fbfeedwrapper.debug.DUMP_VIEWPORT_HTML_JS
+import com.chrisgrou.fbfeedwrapper.debug.shareHtmlDump
 import com.chrisgrou.fbfeedwrapper.filter.FeedFilterBridge
 import com.chrisgrou.fbfeedwrapper.settings.SettingsScreen
 import com.chrisgrou.fbfeedwrapper.settings.SettingsViewModel
@@ -174,9 +172,10 @@ private fun FbWebViewScreen(
                     tint = MaterialTheme.colorScheme.primary,
                 )
             }
-            // Debug-only: copies the HTML of whatever is on screen right now to the
-            // clipboard, so the real feed_filter.js selectors can be worked out from
-            // a phone alone, without a desktop chrome://inspect connection.
+            // Debug-only: saves the HTML of whatever is on screen right now to a file
+            // and opens the share sheet for it, so the real feed_filter.js selectors
+            // can be worked out from a phone alone, without a desktop chrome://inspect
+            // connection or the clipboard's size limits.
             if (BuildConfig.DEBUG) {
                 IconButton(onClick = {
                     webViewRef?.evaluateJavascript(DUMP_VIEWPORT_HTML_JS) { result ->
@@ -185,14 +184,12 @@ private fun FbWebViewScreen(
                             Toast.makeText(context, "Δεν βρέθηκε περιεχόμενο", Toast.LENGTH_SHORT).show()
                             return@evaluateJavascript
                         }
-                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                        clipboard.setPrimaryClip(ClipData.newPlainText("feed html", html))
-                        Toast.makeText(context, "Αντιγράφηκε HTML (${html.length} χαρακτήρες)", Toast.LENGTH_SHORT).show()
+                        shareHtmlDump(context, html)
                     }
                 }) {
                     Icon(
                         imageVector = Icons.Filled.ContentCopy,
-                        contentDescription = "Debug: αντιγραφή ορατού HTML",
+                        contentDescription = "Debug: αποστολή ορατού HTML",
                         tint = MaterialTheme.colorScheme.primary,
                     )
                 }
