@@ -19,6 +19,10 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch { repository.addPage(name) }
     }
 
+    fun addPages(names: List<String>) {
+        viewModelScope.launch { names.forEach { repository.addPage(it) } }
+    }
+
     fun removePage(name: String) {
         viewModelScope.launch { repository.removePage(name) }
     }

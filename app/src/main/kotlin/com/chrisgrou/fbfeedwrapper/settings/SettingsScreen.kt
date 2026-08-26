@@ -33,6 +33,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 @Composable
 fun SettingsScreen(
     onBack: () -> Unit,
+    onOpenSync: () -> Unit,
     viewModel: SettingsViewModel = viewModel(),
 ) {
     val allowedPages by viewModel.allowedPages.collectAsState()
@@ -73,6 +74,13 @@ fun SettingsScreen(
                 }) {
                     Text("Προσθήκη")
                 }
+            }
+
+            TextButton(
+                onClick = onOpenSync,
+                modifier = Modifier.padding(horizontal = 16.dp),
+            ) {
+                Text("Εισαγωγή από τις ομάδες & σελίδες μου")
             }
 
             LazyColumn {

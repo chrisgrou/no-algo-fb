@@ -41,6 +41,7 @@ import com.chrisgrou.fbfeedwrapper.debug.shareHtmlDump
 import com.chrisgrou.fbfeedwrapper.filter.FeedFilterBridge
 import com.chrisgrou.fbfeedwrapper.settings.SettingsScreen
 import com.chrisgrou.fbfeedwrapper.settings.SettingsViewModel
+import com.chrisgrou.fbfeedwrapper.sync.SourceSyncScreen
 import com.chrisgrou.fbfeedwrapper.update.UpdateDialogHost
 import com.chrisgrou.fbfeedwrapper.update.UpdateViewModel
 import org.json.JSONTokener
@@ -74,7 +75,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private enum class Screen { Feed, Settings }
+private enum class Screen { Feed, Settings, Sync }
 
 @Composable
 private fun App(
@@ -82,14 +83,29 @@ private fun App(
     onWebViewCreated: (WebView) -> Unit,
 ) {
     var screen by remember { mutableStateOf(Screen.Feed) }
+    // Activity-scoped, so the sync screen's results land in the same list the settings
+    // screen is showing.
+    val settingsViewModel: SettingsViewModel = viewModel()
 
     when (screen) {
         Screen.Feed -> FbWebViewScreen(
             restoredState = restoredState,
             onWebViewCreated = onWebViewCreated,
             onOpenSettings = { screen = Screen.Settings },
+            settingsViewModel = settingsViewModel,
         )
-        Screen.Settings -> SettingsScreen(onBack = { screen = Screen.Feed })
+        Screen.Settings -> SettingsScreen(
+            onBack = { screen = Screen.Feed },
+            onOpenSync = { screen = Screen.Sync },
+            viewModel = settingsViewModel,
+        )
+        Screen.Sync -> SourceSyncScreen(
+            onCancel = { screen = Screen.Settings },
+            onConfirm = { names ->
+                settingsViewModel.addPages(names)
+                screen = Screen.Settings
+            },
+        )
     }
 }
 
