@@ -41,7 +41,7 @@ fun SettingsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Επιτρεπόμενες σελίδες") },
+                title = { Text("Επιτρεπόμενες πηγές") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.Filled.ArrowBack, contentDescription = "Πίσω")
@@ -52,8 +52,9 @@ fun SettingsScreen(
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             Text(
-                "Μόνο posts από σελίδες/χρήστες σε αυτή τη λίστα θα εμφανίζονται στο feed. " +
-                    "Άδεια λίστα = εμφανίζονται όλα.",
+                "Μόνο posts από ομάδες/σελίδες σε αυτή τη λίστα θα εμφανίζονται στο feed, " +
+                    "ανεξάρτητα από το ποιος τα δημοσίευσε. Άδεια λίστα = εμφανίζονται όλα.\n\n" +
+                    "Γράψε το όνομα ακριβώς όπως εμφανίζεται στην πρώτη γραμμή του post.",
                 modifier = Modifier.padding(16.dp),
             )
 
@@ -61,7 +62,7 @@ fun SettingsScreen(
                 OutlinedTextField(
                     value = newPageName,
                     onValueChange = { newPageName = it },
-                    label = { Text("Όνομα σελίδας") },
+                    label = { Text("Όνομα ομάδας ή σελίδας") },
                     modifier = Modifier.weight(1f),
                 )
                 TextButton(onClick = {

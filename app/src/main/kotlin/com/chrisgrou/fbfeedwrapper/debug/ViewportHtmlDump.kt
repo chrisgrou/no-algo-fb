@@ -48,38 +48,34 @@ const val DUMP_VIEWPORT_HTML_JS = """
 const val DUMP_FILTER_REPORT_JS = """
 (function () {
   var AV = '[data-testid^="post-profile-image-"]';
-  var SC = '[data-type="vscroller"]';
+  var POST = '[data-tracking-duration-id]';
+  var LINK = '[role="link"]';
   var allowed = [];
   try { allowed = JSON.parse(window.NativeFilter.getAllowedAuthorsJson()); } catch (e) {}
   var lines = ['ALLOW-LIST: ' + JSON.stringify(allowed), ''];
   var avatars = document.querySelectorAll(AV);
   lines.push('AVATARS FOUND: ' + avatars.length);
-  lines.push('SCROLLERS FOUND: ' + document.querySelectorAll(SC).length);
+  lines.push('POST CONTAINERS FOUND: ' + document.querySelectorAll(POST).length);
   lines.push('');
+  var seen = [];
   for (var i = 0; i < avatars.length; i++) {
     var a = avatars[i];
+    var post = a.closest(POST);
+    if (!post || seen.indexOf(post) >= 0) continue;
+    seen.push(post);
+
+    var link = post.querySelector(LINK);
+    var source = link ? (link.textContent || '').trim() : '';
     var label = a.getAttribute('aria-label') || '(none)';
-    var name = label.replace(/ Profile Picture${'$'}/, '');
-    var scroller = a.closest(SC);
-    var row = null;
-    if (scroller) {
-      var n = a;
-      while (n && n.parentElement && n.parentElement !== scroller) n = n.parentElement;
-      row = (n && n.parentElement === scroller) ? n : null;
-    }
-    var ar = a.getBoundingClientRect();
-    var rr = row ? row.getBoundingClientRect() : null;
+    var fromLabel = label.replace(/ Profile Picture${'$'}/, '');
+    var pr = post.getBoundingClientRect();
+
     lines.push('[' + i + '] testid=' + a.getAttribute('data-testid'));
-    lines.push('    aria-label = "' + label + '"');
-    lines.push('    derived    = "' + name + '"  allowed=' + (allowed.indexOf(name) >= 0));
-    lines.push('    avatar rect: top=' + Math.round(ar.top) + ' w=' + Math.round(ar.width) + ' h=' + Math.round(ar.height));
-    lines.push('    row found  : ' + (row ? 'yes' : 'NO') +
-      (rr ? (' rect top=' + Math.round(rr.top) + ' w=' + Math.round(rr.width) + ' h=' + Math.round(rr.height)) : '') +
-      (row ? (' hiddenAttr=' + row.getAttribute('data-ffw-hidden') + ' display=' + getComputedStyle(row).display) : ''));
-    // The text near the avatar is what the user actually reads as the post's source;
-    // if it differs from the aria-label, that mismatch is the bug.
-    var header = a.parentElement && a.parentElement.parentElement;
-    if (header) lines.push('    header text: "' + (header.innerText || '').replace(/\s+/g, ' ').substring(0, 120) + '"');
+    lines.push('    source (first role=link) = "' + source + '"  allowed=' + (allowed.indexOf(source) >= 0));
+    lines.push('    avatar aria-label        = "' + label + '"  (would give "' + fromLabel + '")');
+    lines.push('    post rect: top=' + Math.round(pr.top) + ' w=' + Math.round(pr.width) + ' h=' + Math.round(pr.height) +
+      ' hiddenAttr=' + post.getAttribute('data-ffw-hidden') + ' display=' + getComputedStyle(post).display);
+    lines.push('    post text: "' + (post.innerText || '').replace(/\s+/g, ' ').substring(0, 160) + '"');
     lines.push('');
   }
   return lines.join('\n');
