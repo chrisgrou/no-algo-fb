@@ -77,25 +77,32 @@
     return rect.width > 0 && rect.height > 0;
   }
 
-  // Hides the post, then collapses the wrapper elements around it. The framework nests
-  // each post in single-child wrappers that carry their own explicit height (e.g. a
-  // 239px-tall div wrapping a 237px one), so hiding only the post leaves those heights
-  // behind as a blank gap. A wrapper with exactly one element child exists solely to
-  // wrap that child, so it is safe to collapse; anything with siblings is left alone,
-  // and the climb never passes the scroller.
-  function hide(post, scroller) {
-    post.setAttribute(HIDDEN_ATTR, '1');
+  // Whether an element currently shows nothing: no rendered text (innerText already
+  // ignores display:none subtrees) and no media still taking up space.
+  function isVisuallyEmpty(el) {
+    if ((el.innerText || '').trim().length > 0) return false;
+    var media = el.querySelectorAll('img,video,canvas,svg');
+    for (var i = 0; i < media.length; i++) {
+      if (occupiesSpace(media[i])) return false;
+    }
+    return true;
+  }
 
+  // Collapses the wrappers left behind around a hidden post. Restricting this to
+  // single-child wrappers wasn't enough — gaps survived — so the test is now what the
+  // wrapper actually shows: an ancestor that renders nothing is one whose height is
+  // pure empty space, whatever its child count. An ancestor still holding a visible
+  // post has text, so the climb stops there, and it never passes the scroller.
+  function collapseEmptyAncestors(post, scroller) {
     var node = post;
     var guard = 0;
-    while (guard++ < 10) {
+    while (guard++ < 12) {
       var parent = node.parentElement;
       if (!parent || parent === scroller || parent === document.body) break;
-      if (parent.children.length !== 1) break;
+      if (!isVisuallyEmpty(parent)) break;
       parent.setAttribute(HIDDEN_ATTR, '1');
       node = parent;
     }
-    return !occupiesSpace(post);
   }
 
   // Mirror of [hide]: clears the post's mark and any wrapper marks above it, so a
@@ -114,6 +121,20 @@
     }
   }
 
+  // Empty bands left over between posts that aren't ancestors of anything we hid —
+  // measured rather than assumed, so "the gap is still there" stops being guesswork.
+  function countGaps(scroller) {
+    if (!scroller) return 0;
+    var gaps = 0;
+    for (var i = 0; i < scroller.children.length; i++) {
+      var child = scroller.children[i];
+      if (child.hasAttribute(HIDDEN_ATTR)) continue;
+      if (child.getBoundingClientRect().height < 40) continue;
+      if (isVisuallyEmpty(child)) gaps++;
+    }
+    return gaps;
+  }
+
   function applyFilter() {
     var posts = document.querySelectorAll(POST_SELECTOR);
     var considered = 0;
@@ -121,13 +142,19 @@
     var hiddenCount = 0;
     var verifiedHidden = 0;
     var unresolvedVisible = 0;
+    var hiddenPosts = [];
+    var scroller = null;
 
+    // Pass 1 — decide every post. The wrapper cleanup has to wait until this is done,
+    // since a wrapper holding two unwanted posts only reads as empty once both are
+    // marked.
     for (var i = 0; i < posts.length; i++) {
       var post = posts[i];
       // Nested container (a shared/quoted post inside another): the outermost one
       // decides for the whole card.
       if (post.parentElement && post.parentElement.closest(POST_SELECTOR)) continue;
       considered++;
+      if (!scroller) scroller = post.closest(SCROLLER_SELECTOR);
 
       var name = sourceNameFor(post);
       // Unknown source: leave visible rather than hide content on a shape we didn't
@@ -140,19 +167,26 @@
       resolved++;
 
       // Empty allow-list: show everything until the user configures it.
-      var scroller = post.closest(SCROLLER_SELECTOR);
       if (allowed.size === 0 || allowed.has(name)) {
-        unhide(post, scroller);
+        unhide(post, post.closest(SCROLLER_SELECTOR));
       } else {
         hiddenCount++;
-        if (hide(post, scroller)) verifiedHidden++;
+        post.setAttribute(HIDDEN_ATTR, '1');
+        hiddenPosts.push(post);
       }
     }
 
+    // Pass 2 — collapse what the hiding emptied out.
+    for (var j = 0; j < hiddenPosts.length; j++) {
+      collapseEmptyAncestors(hiddenPosts[j], hiddenPosts[j].closest(SCROLLER_SELECTOR));
+      if (!occupiesSpace(hiddenPosts[j])) verifiedHidden++;
+    }
+
+    var gaps = countGaps(scroller);
     console.log('[ffw] posts:', considered, '| sources:', resolved, '| hidden:', hiddenCount,
-      '| verified:', verifiedHidden, '| unresolved-visible:', unresolvedVisible);
+      '| verified:', verifiedHidden, '| unresolved-visible:', unresolvedVisible, '| gaps:', gaps);
     window.NativeFilter && window.NativeFilter.reportStats &&
-      window.NativeFilter.reportStats(considered, resolved, hiddenCount, verifiedHidden, unresolvedVisible);
+      window.NativeFilter.reportStats(considered, resolved, hiddenCount, verifiedHidden, unresolvedVisible, gaps);
   }
 
   window.__ffwRefreshAllowed = function () {

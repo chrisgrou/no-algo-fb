@@ -1,8 +1,16 @@
 package com.chrisgrou.fbfeedwrapper.sync
 
-/** Where the user's groups and followed pages are listed. */
-const val GROUPS_URL = "https://www.facebook.com/groups/"
-const val PAGES_URL = "https://www.facebook.com/pages/"
+/**
+ * Where to start. m.facebook.com, not www: www served an "open in the app"
+ * interstitial instead of the list, and scanning that returned nothing but
+ * "Chrome"/"Firefox"/"Edge" browser-picker links.
+ *
+ * The user can navigate anywhere from here before scanning — Facebook moves these
+ * lists around (the followed-pages list currently lives behind Pages → See all), and
+ * a hardcoded URL that quietly lands somewhere else is exactly how the first attempt
+ * failed.
+ */
+const val GROUPS_URL = "https://m.facebook.com/groups/"
 
 /**
  * Scrolls a list page to its end — these lists lazy-load, so the names only exist in
@@ -35,14 +43,32 @@ const val AUTO_SYNC_JS = """
     return Math.max(document.body.scrollHeight || 0, sc ? (sc.scrollHeight || 0) : 0);
   }
 
+  // These list rows are buttons/containers in Facebook's own component markup, not
+  // plain links, so anything clickable counts as a candidate. A row reads as
+  // "Tesla Owners Greece\n1 new post · Pinned", so the name is its first line.
+  var CANDIDATE_SELECTOR = 'a[href], [role="link"], [role="button"], [data-action-id]';
+  var CHROME_TEXT = [
+    'home', 'groups', 'pages', 'discover', 'search', 'menu', 'follow', 'following',
+    'see all', 'see more', 'create', 'settings', 'notifications', 'marketplace',
+    'friends', 'messages', 'reels', 'chrome', 'firefox', 'edge', 'samsung',
+    'use facebook app', 'your groups', 'liked pages', 'pages you may like',
+  ];
+
+  function firstLine(el) {
+    var text = (el.innerText || el.textContent || '').trim();
+    if (!text) return '';
+    return text.split('\n')[0].trim().replace(/\s+/g, ' ');
+  }
+
   function collect() {
     var out = [];
     var seen = {};
-    var nodes = document.querySelectorAll('a[href], [role="link"]');
+    var nodes = document.querySelectorAll(CANDIDATE_SELECTOR);
     for (var i = 0; i < nodes.length; i++) {
       var el = nodes[i];
-      var text = (el.textContent || '').trim().replace(/\s+/g, ' ');
+      var text = firstLine(el);
       if (!text || text.length < 2 || text.length > 80) continue;
+      if (CHROME_TEXT.indexOf(text.toLowerCase()) >= 0) continue;
       if (seen[text]) continue;
       seen[text] = 1;
       out.push({ name: text, href: el.getAttribute('href') || '' });

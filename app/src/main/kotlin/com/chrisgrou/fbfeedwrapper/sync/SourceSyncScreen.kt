@@ -5,10 +5,13 @@ import android.view.ViewGroup
 import android.webkit.CookieManager
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -41,15 +44,16 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 
-private val SYNC_URLS = listOf(GROUPS_URL, PAGES_URL)
-
 /**
- * Loads the user's groups and followed-pages lists, scrolling each to the end so the
- * lazy-loaded entries exist, then offers what it found for selection.
+ * Lets the user browse to whichever list they want imported — their groups, their
+ * followed pages — and scan it on demand.
  *
- * The WebView is on screen rather than offscreen on purpose: these lists only load
- * more as they are scrolled, which needs real layout, and showing the pages scroll by
- * makes it obvious what the sync is actually doing.
+ * An earlier version drove itself through two hardcoded URLs and reported five browser
+ * names: www.facebook.com had served an "open in the app" interstitial rather than the
+ * list, and the scan dutifully scraped that. Facebook also moves these lists around
+ * (followed pages currently sit behind Pages → See all). Letting the user land on the
+ * real list first removes the guesswork entirely, and scanning is explicit so what gets
+ * captured is never a surprise.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @SuppressLint("SetJavaScriptEnabled")
@@ -59,36 +63,39 @@ fun SourceSyncScreen(
     onConfirm: (List<String>) -> Unit,
 ) {
     val bridge = remember { SourceSyncBridge() }
-    var stage by remember { mutableStateOf(0) }
-    var finished by remember { mutableStateOf(false) }
     val collected = remember { mutableStateListOf<SyncCandidate>() }
     val selected = remember { mutableStateListOf<String>() }
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
+    var scanning by remember { mutableStateOf(false) }
+    var reviewing by remember { mutableStateOf(false) }
 
     val progress by bridge.progress.collectAsState()
     val result by bridge.result.collectAsState()
 
-    // Each pass reports once; fold it in, then either move to the next URL or stop.
     LaunchedEffect(result) {
         val pass = result ?: return@LaunchedEffect
         pass.forEach { candidate ->
             if (collected.none { it.name == candidate.name }) collected.add(candidate)
         }
         bridge.clearResult()
-        if (stage + 1 < SYNC_URLS.size) {
-            stage++
-            webViewRef?.loadUrl(SYNC_URLS[stage])
-        } else {
-            finished = true
-        }
+        scanning = false
+    }
+
+    // Back goes through the page's own history first, so browsing to a list and
+    // stepping back doesn't drop the user out of the sync flow.
+    BackHandler(enabled = !reviewing) {
+        val web = webViewRef
+        if (web != null && web.canGoBack()) web.goBack() else onCancel()
     }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(if (finished) "Βρέθηκαν ${collected.size}" else "Συγχρονισμός...") },
+                title = {
+                    Text(if (reviewing) "Βρέθηκαν ${collected.size}" else "Εισαγωγή πηγών")
+                },
                 navigationIcon = {
-                    IconButton(onClick = onCancel) {
+                    IconButton(onClick = { if (reviewing) reviewing = false else onCancel() }) {
                         Icon(Icons.Filled.ArrowBack, contentDescription = "Πίσω")
                     }
                 },
@@ -96,7 +103,7 @@ fun SourceSyncScreen(
         },
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding)) {
-            if (finished) {
+            if (reviewing) {
                 ResultList(
                     candidates = collected,
                     selected = selected,
@@ -106,7 +113,6 @@ fun SourceSyncScreen(
                     onConfirm = { onConfirm(selected.toList()) },
                 )
             } else {
-                // Kept in the tree while running: scrolling is what loads the entries.
                 AndroidView(
                     modifier = Modifier.fillMaxSize(),
                     factory = { context ->
@@ -117,6 +123,8 @@ fun SourceSyncScreen(
                             )
                             settings.javaScriptEnabled = true
                             settings.domStorageEnabled = true
+                            settings.useWideViewPort = true
+                            settings.loadWithOverviewMode = true
 
                             // Shares the app's cookie jar, so these pages load logged in.
                             val cookieManager = CookieManager.getInstance()
@@ -124,34 +132,72 @@ fun SourceSyncScreen(
                             cookieManager.setAcceptThirdPartyCookies(this, true)
 
                             addJavascriptInterface(bridge, "NativeSync")
-                            webViewClient = object : WebViewClient() {
-                                override fun onPageFinished(view: WebView, url: String?) {
-                                    super.onPageFinished(view, url)
-                                    view.evaluateJavascript(AUTO_SYNC_JS, null)
-                                }
-                            }
+                            webViewClient = WebViewClient()
                             webViewRef = this
-                            loadUrl(SYNC_URLS[0])
+                            loadUrl(GROUPS_URL)
                         }
                     },
                 )
 
-                Column(
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .fillMaxWidth()
-                        .background(Color.Black.copy(alpha = 0.75f))
-                        .padding(16.dp),
-                ) {
-                    Text(
-                        "Σελίδα ${stage + 1} από ${SYNC_URLS.size} · scroll ${progress.scrollRounds} · " +
-                            "βρέθηκαν ${progress.found}",
-                        color = Color.White,
-                    )
-                    CircularProgressIndicator(
-                        modifier = Modifier.padding(top = 8.dp),
-                        color = Color.White,
-                    )
+                SyncControls(
+                    scanning = scanning,
+                    scanRounds = progress.scrollRounds,
+                    scanFound = progress.found,
+                    collectedCount = collected.size,
+                    onScan = {
+                        scanning = true
+                        webViewRef?.evaluateJavascript(AUTO_SYNC_JS, null)
+                    },
+                    onReview = {
+                        // Pre-tick everything: on a real list page nearly all of it is
+                        // wanted, and unticking the odd stray is less work than ticking
+                        // fifty groups by hand.
+                        selected.clear()
+                        selected.addAll(collected.map { it.name })
+                        reviewing = true
+                    },
+                    modifier = Modifier.align(Alignment.BottomCenter),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SyncControls(
+    scanning: Boolean,
+    scanRounds: Int,
+    scanFound: Int,
+    collectedCount: Int,
+    onScan: () -> Unit,
+    onReview: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(Color.Black.copy(alpha = 0.8f))
+            .padding(12.dp),
+    ) {
+        Text(
+            if (scanning) {
+                "Σάρωση... scroll $scanRounds · βρέθηκαν $scanFound"
+            } else {
+                "Πήγαινε στη λίστα με τις ομάδες ή τις σελίδες σου και πάτα σάρωση. " +
+                    "Μαζεμένα μέχρι τώρα: $collectedCount"
+            },
+            color = Color.White,
+        )
+        Row(
+            Modifier.fillMaxWidth().padding(top = 8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            if (scanning) {
+                CircularProgressIndicator(color = Color.White)
+            } else {
+                TextButton(onClick = onScan) { Text("Σάρωση αυτής της σελίδας") }
+                TextButton(onClick = onReview, enabled = collectedCount > 0) {
+                    Text("Τέλος ($collectedCount)")
                 }
             }
         }
@@ -167,8 +213,7 @@ private fun ResultList(
 ) {
     Column(Modifier.fillMaxSize()) {
         Text(
-            "Διάλεξε ποιες θέλεις στη λίστα. Η λίστα περιέχει ό,τι έμοιαζε με σύνδεσμο " +
-                "σε αυτές τις σελίδες, οπότε μπορεί να έχει και άσχετα στοιχεία μενού.",
+            "Ξεδιάλεξε ό,τι δεν είναι ομάδα ή σελίδα — η σάρωση πιάνει και στοιχεία μενού.",
             modifier = Modifier.padding(16.dp),
         )
         TextButton(
