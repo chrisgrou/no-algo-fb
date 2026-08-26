@@ -25,6 +25,19 @@
 
   var AVATAR_SELECTOR = '[data-testid^="post-profile-image-"]';
   var NAME_SUFFIX = / Profile Picture$/;
+  var HIDDEN_ATTR = 'data-ffw-hidden';
+
+  // Hiding via row.style.display got silently undone: this framework appears to
+  // rewrite elements' inline `style` on its own render/scroll passes, wiping out
+  // anything we set there. A stylesheet rule keyed off a plain attribute survives
+  // that, since the framework has no reason to touch a data-* attribute it didn't
+  // create.
+  if (!document.getElementById('ffw-style')) {
+    var style = document.createElement('style');
+    style.id = 'ffw-style';
+    style.textContent = '[' + HIDDEN_ATTR + '="1"]{display:none !important;}';
+    document.head.appendChild(style);
+  }
 
   function getAllowed() {
     try {
@@ -80,10 +93,15 @@
 
       // Empty allow-list: show everything until the user configures it.
       var isAllowed = allowed.size === 0 || allowed.has(name);
-      if (!isAllowed) hiddenCount++;
-      // display:none (not visibility:hidden) so hidden posts collapse fully,
-      // leaving no gap in the feed, per the project's filtering requirement.
-      row.style.display = isAllowed ? '' : 'none';
+      if (isAllowed) {
+        row.removeAttribute(HIDDEN_ATTR);
+      } else {
+        hiddenCount++;
+        // The [data-ffw-hidden="1"] stylesheet rule (display:none !important)
+        // collapses the row fully, leaving no gap in the feed, per the project's
+        // filtering requirement.
+        row.setAttribute(HIDDEN_ATTR, '1');
+      }
     }
 
     // Visible in chrome://inspect's console, and — via NativeFilter.reportStats —
