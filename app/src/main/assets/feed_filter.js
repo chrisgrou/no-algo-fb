@@ -61,19 +61,28 @@
 
   var allowed = getAllowed();
 
+  // Collapses internal whitespace/newlines to a single space. A long source name that
+  // wraps onto a second line in the DOM has a literal newline in its textContent (e.g.
+  // "Parkside Greek Club - Εργαλεία και\nκατασκευές"), which .trim() alone leaves in
+  // place — the allow-list entry the user typed never had that newline, so the two
+  // never matched and the post was judged wrong regardless of what was typed.
+  function normalizeName(text) {
+    return text.replace(/\s+/g, ' ').trim();
+  }
+
   // The group/page the post comes from. The first link in the post header is that
   // source; the avatar's aria-label is only a fallback for shapes with no link.
   function sourceNameFor(post) {
     var link = post.querySelector(LINK_SELECTOR);
     if (link) {
-      var text = (link.textContent || '').trim();
+      var text = normalizeName(link.textContent || '');
       if (text) return text;
     }
     var avatar = post.querySelector(AVATAR_SELECTOR);
     if (!avatar) return null;
     var label = avatar.getAttribute('aria-label') || '';
-    var name = label.replace(NAME_SUFFIX, '');
-    return name && name !== label ? name.trim() : null;
+    var name = normalizeName(label.replace(NAME_SUFFIX, ''));
+    return name && name !== normalizeName(label) ? name : null;
   }
 
   function occupiesSpace(el) {
