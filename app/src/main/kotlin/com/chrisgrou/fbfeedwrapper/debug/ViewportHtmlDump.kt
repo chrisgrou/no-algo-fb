@@ -53,26 +53,24 @@ const val DUMP_FILTER_REPORT_JS = """
   var allowed = [];
   try { allowed = JSON.parse(window.NativeFilter.getAllowedAuthorsJson()); } catch (e) {}
   var lines = ['ALLOW-LIST: ' + JSON.stringify(allowed), ''];
-  var avatars = document.querySelectorAll(AV);
-  lines.push('AVATARS FOUND: ' + avatars.length);
-  lines.push('POST CONTAINERS FOUND: ' + document.querySelectorAll(POST).length);
+  var posts = document.querySelectorAll(POST);
+  lines.push('POST CONTAINERS FOUND: ' + posts.length);
+  lines.push('AVATARS FOUND: ' + document.querySelectorAll(AV).length);
   lines.push('');
-  var seen = [];
-  for (var i = 0; i < avatars.length; i++) {
-    var a = avatars[i];
-    var post = a.closest(POST);
-    if (!post || seen.indexOf(post) >= 0) continue;
-    seen.push(post);
-
+  // Iterates containers, not avatars: posts whose avatar lacks the testid (group
+  // posts, some ads) are precisely the ones that used to be skipped entirely.
+  for (var i = 0; i < posts.length; i++) {
+    var post = posts[i];
+    var nested = post.parentElement && post.parentElement.closest(POST) ? ' NESTED' : '';
     var link = post.querySelector(LINK);
     var source = link ? (link.textContent || '').trim() : '';
-    var label = a.getAttribute('aria-label') || '(none)';
-    var fromLabel = label.replace(/ Profile Picture${'$'}/, '');
+    var a = post.querySelector(AV);
+    var label = a ? (a.getAttribute('aria-label') || '(none)') : '(no avatar w/ testid)';
     var pr = post.getBoundingClientRect();
 
-    lines.push('[' + i + '] testid=' + a.getAttribute('data-testid'));
+    lines.push('[' + i + ']' + nested + ' trackingId=' + post.getAttribute('data-tracking-duration-id'));
     lines.push('    source (first role=link) = "' + source + '"  allowed=' + (allowed.indexOf(source) >= 0));
-    lines.push('    avatar aria-label        = "' + label + '"  (would give "' + fromLabel + '")');
+    lines.push('    avatar aria-label        = "' + label + '"');
     lines.push('    post rect: top=' + Math.round(pr.top) + ' w=' + Math.round(pr.width) + ' h=' + Math.round(pr.height) +
       ' hiddenAttr=' + post.getAttribute('data-ffw-hidden') + ' display=' + getComputedStyle(post).display);
     lines.push('    post text: "' + (post.innerText || '').replace(/\s+/g, ' ').substring(0, 160) + '"');

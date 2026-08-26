@@ -212,8 +212,8 @@ private fun FbWebViewScreen(
         if (BuildConfig.DEBUG) {
             Text(
                 text = filterStats?.let {
-                    "rows=${it.rowsMatched} auth=${it.authorsResolved} hid=${it.hiddenCount} " +
-                        "ok=${it.verifiedHidden} has=${it.hasSelectorSupport} allow=${allowedPages.size}"
+                    "posts=${it.rowsMatched} src=${it.authorsResolved} hid=${it.hiddenCount} " +
+                        "ok=${it.verifiedHidden} leak=${it.unresolvedVisible} allow=${allowedPages.size}"
                 } ?: "filter: no data yet",
                 color = Color.White,
                 modifier = Modifier

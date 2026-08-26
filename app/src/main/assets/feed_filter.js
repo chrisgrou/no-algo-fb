@@ -15,9 +15,13 @@
 //   - A whole post/ad is wrapped in an element carrying data-tracking-duration-id,
 //     whose height covers header AND body (e.g. 916px = 63px header + 389px body +
 //     footer). This is the thing to hide.
-//   - Inside it, the avatar carries data-testid="post-profile-image-<n>" — a reliable
-//     marker that a container is a post at all.
 //   - The source name is the first [role="link"] in the post: the group or page name.
+//   - Some avatars carry data-testid="post-profile-image-<n>", but group posts and
+//     some ad formats do not. An on-device capture found 57 post containers against
+//     only 32 such avatars, and the ~25 posts with no matching avatar were exactly
+//     the ones that kept getting through: anchoring the scan on avatars never looked
+//     at them. So the scan iterates post containers, and the avatar is only a
+//     fallback source of the name.
 //
 // Hiding the header alone was what produced the reported "blank gaps above and below
 // posts": the header collapsed, the body kept painting. Hiding the tracking-duration
@@ -55,12 +59,14 @@
 
   // The group/page the post comes from. The first link in the post header is that
   // source; the avatar's aria-label is only a fallback for shapes with no link.
-  function sourceNameFor(post, avatar) {
+  function sourceNameFor(post) {
     var link = post.querySelector(LINK_SELECTOR);
     if (link) {
       var text = (link.textContent || '').trim();
       if (text) return text;
     }
+    var avatar = post.querySelector(AVATAR_SELECTOR);
+    if (!avatar) return null;
     var label = avatar.getAttribute('aria-label') || '';
     var name = label.replace(NAME_SUFFIX, '');
     return name && name !== label ? name.trim() : null;
@@ -73,7 +79,7 @@
 
   // Climbs only if hiding the post container somehow didn't collapse it, and never
   // past the scroller, so a mis-climb can't blank the whole feed.
-  function hide(post, avatar, scroller) {
+  function hide(post, scroller) {
     post.setAttribute(HIDDEN_ATTR, '1');
     if (!occupiesSpace(post)) return true;
 
@@ -89,22 +95,28 @@
   }
 
   function applyFilter() {
-    var avatars = document.querySelectorAll(AVATAR_SELECTOR);
-    var seen = new Set();
+    var posts = document.querySelectorAll(POST_SELECTOR);
+    var considered = 0;
     var resolved = 0;
     var hiddenCount = 0;
     var verifiedHidden = 0;
+    var unresolvedVisible = 0;
 
-    for (var i = 0; i < avatars.length; i++) {
-      var avatar = avatars[i];
-      var post = avatar.closest(POST_SELECTOR);
-      if (!post || seen.has(post)) continue;
-      seen.add(post);
+    for (var i = 0; i < posts.length; i++) {
+      var post = posts[i];
+      // Nested container (a shared/quoted post inside another): the outermost one
+      // decides for the whole card.
+      if (post.parentElement && post.parentElement.closest(POST_SELECTOR)) continue;
+      considered++;
 
-      var name = sourceNameFor(post, avatar);
+      var name = sourceNameFor(post);
       // Unknown source: leave visible rather than hide content on a shape we didn't
-      // anticipate.
-      if (!name) continue;
+      // anticipate. Counted separately — a non-zero count here is what "some posts
+      // still get through" looks like.
+      if (!name) {
+        if (occupiesSpace(post)) unresolvedVisible++;
+        continue;
+      }
       resolved++;
 
       // Empty allow-list: show everything until the user configures it.
@@ -112,14 +124,14 @@
         post.removeAttribute(HIDDEN_ATTR);
       } else {
         hiddenCount++;
-        if (hide(post, avatar, avatar.closest(SCROLLER_SELECTOR))) verifiedHidden++;
+        if (hide(post, post.closest(SCROLLER_SELECTOR))) verifiedHidden++;
       }
     }
 
-    console.log('[ffw] posts:', seen.size, '| sources:', resolved,
-      '| hidden:', hiddenCount, '| verified:', verifiedHidden);
+    console.log('[ffw] posts:', considered, '| sources:', resolved, '| hidden:', hiddenCount,
+      '| verified:', verifiedHidden, '| unresolved-visible:', unresolvedVisible);
     window.NativeFilter && window.NativeFilter.reportStats &&
-      window.NativeFilter.reportStats(seen.size, resolved, hiddenCount, verifiedHidden, true);
+      window.NativeFilter.reportStats(considered, resolved, hiddenCount, verifiedHidden, unresolvedVisible);
   }
 
   window.__ffwRefreshAllowed = function () {

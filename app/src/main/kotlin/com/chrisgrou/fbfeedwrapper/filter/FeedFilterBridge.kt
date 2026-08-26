@@ -9,10 +9,10 @@ data class FilterStats(
     val rowsMatched: Int,
     val authorsResolved: Int,
     val hiddenCount: Int,
-    /** Of [hiddenCount], how many the page actually renders as display:none. */
+    /** Of [hiddenCount], how many actually collapsed out of the layout. */
     val verifiedHidden: Int,
-    /** Whether this WebView supports the :has() selector the primary rule relies on. */
-    val hasSelectorSupport: Boolean,
+    /** Posts still on screen whose source name couldn't be read — the leak to watch. */
+    val unresolvedVisible: Int,
 )
 
 /**
@@ -40,8 +40,8 @@ class FeedFilterBridge {
         authorsResolved: Int,
         hiddenCount: Int,
         verifiedHidden: Int,
-        hasSelectorSupport: Boolean,
+        unresolvedVisible: Int,
     ) {
-        _stats.value = FilterStats(rowsMatched, authorsResolved, hiddenCount, verifiedHidden, hasSelectorSupport)
+        _stats.value = FilterStats(rowsMatched, authorsResolved, hiddenCount, verifiedHidden, unresolvedVisible)
     }
 }
