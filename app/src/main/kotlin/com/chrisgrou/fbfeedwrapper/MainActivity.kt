@@ -40,6 +40,7 @@ import com.chrisgrou.fbfeedwrapper.debug.shareHtmlDump
 import com.chrisgrou.fbfeedwrapper.filter.FeedFilterBridge
 import com.chrisgrou.fbfeedwrapper.nav.NavigationBridge
 import com.chrisgrou.fbfeedwrapper.scroll.ScrollPositionBridge
+import com.chrisgrou.fbfeedwrapper.settings.AllowedSourcesScreen
 import com.chrisgrou.fbfeedwrapper.settings.SettingsScreen
 import com.chrisgrou.fbfeedwrapper.settings.SettingsViewModel
 import com.chrisgrou.fbfeedwrapper.sync.SourceSyncScreen
@@ -75,7 +76,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private enum class Screen { Feed, Settings, Sync }
+private enum class Screen { Feed, Settings, Sync, AllowedSources }
 
 @Composable
 private fun App(
@@ -98,6 +99,7 @@ private fun App(
         Screen.Settings -> SettingsScreen(
             onBack = { screen = Screen.Feed },
             onOpenSync = { screen = Screen.Sync },
+            onOpenAllowedSources = { screen = Screen.AllowedSources },
             settingsViewModel = settingsViewModel,
             updateViewModel = updateViewModel,
         )
@@ -107,6 +109,10 @@ private fun App(
                 settingsViewModel.addPages(names)
                 screen = Screen.Settings
             },
+        )
+        Screen.AllowedSources -> AllowedSourcesScreen(
+            onBack = { screen = Screen.Settings },
+            settingsViewModel = settingsViewModel,
         )
     }
 }

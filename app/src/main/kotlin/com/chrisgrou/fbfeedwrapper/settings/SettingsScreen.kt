@@ -9,12 +9,13 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
@@ -39,21 +40,23 @@ import com.chrisgrou.fbfeedwrapper.update.UpdateViewModel
 
 /**
  * The app's single settings hub: the front screen shows only the gear icon that opens
- * this, and everything else — update checks, importing sources, editing the allow-list
- * — is organized here instead of scattered as separate icons over the feed.
+ * this, and everything else — update checks, importing sources, and the allow-list —
+ * is organized here instead of scattered as separate icons over the feed. The
+ * allow-list itself lives on its own screen (AllowedSourcesScreen) rather than being
+ * inlined here, since it can grow arbitrarily long and isn't a fixed-size setting like
+ * the rows above it.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
     onBack: () -> Unit,
     onOpenSync: () -> Unit,
+    onOpenAllowedSources: () -> Unit,
     settingsViewModel: SettingsViewModel = viewModel(),
     updateViewModel: UpdateViewModel = viewModel(),
 ) {
     val allowedPages by settingsViewModel.allowedPages.collectAsState()
     val updateState by updateViewModel.state.collectAsState()
-    var newPageName by remember { mutableStateOf("") }
-    var editingName by remember { mutableStateOf<String?>(null) }
 
     Scaffold(
         topBar = {
@@ -85,20 +88,57 @@ fun SettingsScreen(
                     leadingContent = { Icon(Icons.Filled.CloudSync, contentDescription = null) },
                     modifier = Modifier.fillMaxWidth().clickable(onClick = onOpenSync),
                 )
-                HorizontalDivider()
-                Text(
-                    "Επιτρεπόμενες πηγές",
-                    style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.padding(16.dp),
+                ListItem(
+                    headlineContent = { Text("Επιτρεπόμενες πηγές") },
+                    supportingContent = { Text("${allowedPages.size} ομάδες/σελίδες") },
+                    leadingContent = { Icon(Icons.Filled.List, contentDescription = null) },
+                    trailingContent = { Icon(Icons.Filled.ChevronRight, contentDescription = null) },
+                    modifier = Modifier.fillMaxWidth().clickable(onClick = onOpenAllowedSources),
                 )
+            }
+        }
+    }
+
+    UpdateDialogHost(updateViewModel)
+}
+
+/**
+ * The allow-list itself, split out from SettingsScreen so the fixed-size hub (update
+ * check, sync entry point) isn't buried under a list of arbitrary, growing length.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun AllowedSourcesScreen(
+    onBack: () -> Unit,
+    settingsViewModel: SettingsViewModel = viewModel(),
+) {
+    val allowedPages by settingsViewModel.allowedPages.collectAsState()
+    var newPageName by remember { mutableStateOf("") }
+    var editingName by remember { mutableStateOf<String?>(null) }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Επιτρεπόμενες πηγές") },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.Filled.ArrowBack, contentDescription = "Πίσω")
+                    }
+                },
+            )
+        },
+    ) { padding ->
+        LazyColumn(Modifier.fillMaxSize().padding(padding)) {
+            item {
                 Text(
                     "Μόνο posts από ομάδες/σελίδες σε αυτή τη λίστα θα εμφανίζονται στο feed, " +
                         "ανεξάρτητα από το ποιος τα δημοσίευσε. Άδεια λίστα = εμφανίζονται όλα.\n\n" +
                         "Γράψε το όνομα ακριβώς όπως εμφανίζεται στην πρώτη γραμμή του post. " +
                         "Πάτα σε μια καταχώρηση για να την επεξεργαστείς.",
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(16.dp),
                 )
-                Row(Modifier.fillMaxWidth().padding(16.dp)) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
                     OutlinedTextField(
                         value = newPageName,
                         onValueChange = { newPageName = it },
@@ -143,8 +183,6 @@ fun SettingsScreen(
             },
         )
     }
-
-    UpdateDialogHost(updateViewModel)
 }
 
 @Composable
