@@ -10,12 +10,15 @@
 //     Picture" — this is the one reasonably stable anchor found.
 //   - The scrollable feed itself is the single element with data-type="vscroller";
 //     its direct children are the top-level "rows" (header, stories, composer, and
-//     each post/ad). A post's row is found by walking up from its avatar element
-//     until the parent is the vscroller itself, regardless of how deep the avatar
-//     is nested inside that row (varies by post type: photo/video/link/shared post).
-// This is still Facebook's private, frequently-changing internal markup — expect it
-// to need re-verification (via the debug HTML-dump button, see MainActivity) if
-// filtering silently stops working again.
+//     each post/ad).
+//
+// HIDING STRATEGY: two earlier attempts (row.style.display, then a data-attribute
+// plus a stylesheet rule) both reported the right rows as hidden while nothing
+// actually disappeared — this framework re-renders rows and drops whatever we write
+// onto the element. So the primary mechanism is now a single purely declarative CSS
+// rule using :has(), which keeps working no matter how often the framework rebuilds
+// a row, since nothing of ours has to survive on the element itself. The per-element
+// attribute is still set as a fallback for WebViews without :has() support.
 (function () {
   if (window.__ffwInstalled) {
     window.__ffwRefreshAllowed && window.__ffwRefreshAllowed();
@@ -26,28 +29,54 @@
   var AVATAR_SELECTOR = '[data-testid^="post-profile-image-"]';
   var NAME_SUFFIX = / Profile Picture$/;
   var HIDDEN_ATTR = 'data-ffw-hidden';
+  var HAS_SUPPORT = (function () {
+    try {
+      return CSS.supports('selector(:has(*))');
+    } catch (e) {
+      return false;
+    }
+  })();
 
-  // Hiding via row.style.display got silently undone: this framework appears to
-  // rewrite elements' inline `style` on its own render/scroll passes, wiping out
-  // anything we set there. A stylesheet rule keyed off a plain attribute survives
-  // that, since the framework has no reason to touch a data-* attribute it didn't
-  // create.
-  if (!document.getElementById('ffw-style')) {
-    var style = document.createElement('style');
-    style.id = 'ffw-style';
-    style.textContent = '[' + HIDDEN_ATTR + '="1"]{display:none !important;}';
-    document.head.appendChild(style);
+  function styleEl() {
+    var el = document.getElementById('ffw-style');
+    if (!el) {
+      el = document.createElement('style');
+      el.id = 'ffw-style';
+      (document.head || document.documentElement).appendChild(el);
+    }
+    return el;
+  }
+
+  function cssString(s) {
+    return s.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
   }
 
   function getAllowed() {
     try {
-      return new Set(JSON.parse(window.NativeFilter.getAllowedAuthorsJson()));
+      return JSON.parse(window.NativeFilter.getAllowedAuthorsJson());
     } catch (e) {
-      return new Set();
+      return [];
     }
   }
 
-  var allowed = getAllowed();
+  var allowedList = getAllowed();
+  var allowed = new Set(allowedList);
+
+  // "Every vscroller child that contains a post avatar, except those containing an
+  // avatar of an allowed author." Purely declarative, so re-renders can't undo it.
+  function buildRule() {
+    if (!allowedList.length) return '[' + HIDDEN_ATTR + '="1"]{display:none !important;}';
+    var rule = '[data-type="vscroller"] > *:has(' + AVATAR_SELECTOR + ')';
+    for (var i = 0; i < allowedList.length; i++) {
+      rule += ':not(:has([aria-label="' + cssString(allowedList[i]) + ' Profile Picture"]))';
+    }
+    return rule + '{display:none !important;}' +
+      '[' + HIDDEN_ATTR + '="1"]{display:none !important;}';
+  }
+
+  function refreshRule() {
+    styleEl().textContent = buildRule();
+  }
 
   function getScroller() {
     return document.querySelector('[data-type="vscroller"]');
@@ -77,6 +106,7 @@
     var seenRows = new Set();
     var resolvedCount = 0;
     var hiddenCount = 0;
+    var hiddenRows = [];
 
     for (var i = 0; i < avatars.length; i++) {
       var row = rowRootFor(avatars[i], scroller);
@@ -97,23 +127,30 @@
         row.removeAttribute(HIDDEN_ATTR);
       } else {
         hiddenCount++;
-        // The [data-ffw-hidden="1"] stylesheet rule (display:none !important)
-        // collapses the row fully, leaving no gap in the feed, per the project's
-        // filtering requirement.
+        hiddenRows.push(row);
         row.setAttribute(HIDDEN_ATTR, '1');
       }
     }
 
-    // Visible in chrome://inspect's console, and — via NativeFilter.reportStats —
-    // in the app's on-screen debug overlay (BuildConfig.DEBUG), so it's possible to
-    // tell whether AVATAR_SELECTOR still matches anything without a desktop.
-    console.log('[ffw] post rows matched:', seenRows.size, '| authors resolved:', resolvedCount, '| hidden:', hiddenCount);
+    // Diagnostics: of the rows we decided to hide, how many are actually rendered as
+    // display:none right now? A hiddenCount far above verifiedHidden means the page
+    // is winning the fight over those elements, and the mechanism — not the
+    // selectors — is what still needs work.
+    var verifiedHidden = 0;
+    for (var j = 0; j < hiddenRows.length; j++) {
+      if (getComputedStyle(hiddenRows[j]).display === 'none') verifiedHidden++;
+    }
+
+    console.log('[ffw] rows:', seenRows.size, '| authors:', resolvedCount,
+      '| hidden:', hiddenCount, '| verified:', verifiedHidden, '| :has():', HAS_SUPPORT);
     window.NativeFilter && window.NativeFilter.reportStats &&
-      window.NativeFilter.reportStats(seenRows.size, resolvedCount, hiddenCount);
+      window.NativeFilter.reportStats(seenRows.size, resolvedCount, hiddenCount, verifiedHidden, HAS_SUPPORT);
   }
 
   window.__ffwRefreshAllowed = function () {
-    allowed = getAllowed();
+    allowedList = getAllowed();
+    allowed = new Set(allowedList);
+    refreshRule();
     applyFilter();
   };
 
@@ -129,5 +166,6 @@
   });
   observer.observe(document.body, { childList: true, subtree: true });
 
+  refreshRule();
   applyFilter();
 })();

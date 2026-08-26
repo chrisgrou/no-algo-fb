@@ -5,7 +5,15 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import org.json.JSONArray
 
-data class FilterStats(val rowsMatched: Int, val authorsResolved: Int, val hiddenCount: Int)
+data class FilterStats(
+    val rowsMatched: Int,
+    val authorsResolved: Int,
+    val hiddenCount: Int,
+    /** Of [hiddenCount], how many the page actually renders as display:none. */
+    val verifiedHidden: Int,
+    /** Whether this WebView supports the :has() selector the primary rule relies on. */
+    val hasSelectorSupport: Boolean,
+)
 
 /**
  * Bridges native and the injected feed_filter.js asset via window.NativeFilter:
@@ -27,7 +35,13 @@ class FeedFilterBridge {
     fun getAllowedAuthorsJson(): String = JSONArray(allowedAuthors).toString()
 
     @JavascriptInterface
-    fun reportStats(rowsMatched: Int, authorsResolved: Int, hiddenCount: Int) {
-        _stats.value = FilterStats(rowsMatched, authorsResolved, hiddenCount)
+    fun reportStats(
+        rowsMatched: Int,
+        authorsResolved: Int,
+        hiddenCount: Int,
+        verifiedHidden: Int,
+        hasSelectorSupport: Boolean,
+    ) {
+        _stats.value = FilterStats(rowsMatched, authorsResolved, hiddenCount, verifiedHidden, hasSelectorSupport)
     }
 }
