@@ -8,24 +8,36 @@ import android.webkit.WebView
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.chrisgrou.fbfeedwrapper.filter.FeedFilterBridge
+import com.chrisgrou.fbfeedwrapper.settings.SettingsScreen
+import com.chrisgrou.fbfeedwrapper.settings.SettingsViewModel
 import com.chrisgrou.fbfeedwrapper.update.UpdateDialogHost
 import com.chrisgrou.fbfeedwrapper.update.UpdateViewModel
 
 private const val FEED_URL = "https://m.facebook.com"
 private const val WEBVIEW_STATE_KEY = "webview_state"
+private const val REFRESH_FILTER_JS = "window.__ffwRefreshAllowed && window.__ffwRefreshAllowed();"
 
 class MainActivity : ComponentActivity() {
 
@@ -37,7 +49,7 @@ class MainActivity : ComponentActivity() {
         restoredState = savedInstanceState?.getBundle(WEBVIEW_STATE_KEY)
 
         setContent {
-            FbWebViewScreen(
+            App(
                 restoredState = restoredState,
                 onWebViewCreated = { webView = it },
             )
@@ -52,13 +64,45 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+private enum class Screen { Feed, Settings }
+
+@Composable
+private fun App(
+    restoredState: Bundle?,
+    onWebViewCreated: (WebView) -> Unit,
+) {
+    var screen by remember { mutableStateOf(Screen.Feed) }
+
+    when (screen) {
+        Screen.Feed -> FbWebViewScreen(
+            restoredState = restoredState,
+            onWebViewCreated = onWebViewCreated,
+            onOpenSettings = { screen = Screen.Settings },
+        )
+        Screen.Settings -> SettingsScreen(onBack = { screen = Screen.Feed })
+    }
+}
+
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 private fun FbWebViewScreen(
     restoredState: Bundle?,
     onWebViewCreated: (WebView) -> Unit,
+    onOpenSettings: () -> Unit,
     updateViewModel: UpdateViewModel = viewModel(),
+    settingsViewModel: SettingsViewModel = viewModel(),
 ) {
+    val filterBridge = remember { FeedFilterBridge() }
+    var webViewRef by remember { mutableStateOf<WebView?>(null) }
+    val allowedPages by settingsViewModel.allowedPages.collectAsState()
+
+    // Re-applies the filter in the already-loaded page whenever the user
+    // edits the allowed-pages list in Settings.
+    LaunchedEffect(allowedPages) {
+        filterBridge.allowedAuthors = allowedPages
+        webViewRef?.evaluateJavascript(REFRESH_FILTER_JS, null)
+    }
+
     Box(Modifier.fillMaxSize()) {
         AndroidView(
             modifier = Modifier.fillMaxSize(),
@@ -80,9 +124,11 @@ private fun FbWebViewScreen(
                     cookieManager.setAcceptCookie(true)
                     cookieManager.setAcceptThirdPartyCookies(this, true)
 
+                    addJavascriptInterface(filterBridge, "NativeFilter")
                     webViewClient = FbWebViewClient()
 
                     onWebViewCreated(this)
+                    webViewRef = this
 
                     if (restoredState != null) {
                         restoreState(restoredState)
@@ -93,17 +139,25 @@ private fun FbWebViewScreen(
             },
         )
 
-        IconButton(
-            onClick = updateViewModel::checkForUpdate,
+        Row(
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .padding(8.dp),
         ) {
-            Icon(
-                imageVector = Icons.Filled.SystemUpdate,
-                contentDescription = "Έλεγχος για ενημερώσεις",
-                tint = MaterialTheme.colorScheme.primary,
-            )
+            IconButton(onClick = onOpenSettings) {
+                Icon(
+                    imageVector = Icons.Filled.Settings,
+                    contentDescription = "Ρυθμίσεις φιλτραρίσματος",
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+            }
+            IconButton(onClick = updateViewModel::checkForUpdate) {
+                Icon(
+                    imageVector = Icons.Filled.SystemUpdate,
+                    contentDescription = "Έλεγχος για ενημερώσεις",
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+            }
         }
 
         UpdateDialogHost(updateViewModel)
