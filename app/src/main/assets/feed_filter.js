@@ -244,10 +244,45 @@
     applyFilter(true);
   };
 
+  // Hides newly-added unwanted posts synchronously, right in the mutation callback —
+  // before the browser's next paint — rather than waiting for the debounced pass
+  // below. An on-device screenshot caught an unwanted post at full size for a moment
+  // during fast scrolling: new posts stream in constantly during infinite scroll, and
+  // debouncing the *decision* along with the (expensive) collapse/gap cleanup meant a
+  // post could paint once, full-size, before the deferred pass got to it. Only sets
+  // HIDDEN_ATTR here — instant visually via the stylesheet rule — and deliberately
+  // leaves DECIDED_ATTR unset, so the debounced applyFilter() pass still re-decides
+  // and, for real, collapses these posts' now-empty wrappers; that part doesn't need
+  // to be instant, only the hide does.
+  function quickHideNewPosts(mutations) {
+    for (var m = 0; m < mutations.length; m++) {
+      var added = mutations[m].addedNodes;
+      for (var a = 0; a < added.length; a++) {
+        var node = added[a];
+        if (node.nodeType !== 1 || !node.querySelectorAll) continue;
+
+        var candidates = node.matches && node.matches(POST_SELECTOR) ? [node] : [];
+        var nested = node.querySelectorAll(POST_SELECTOR);
+        for (var n = 0; n < nested.length; n++) candidates.push(nested[n]);
+
+        for (var c = 0; c < candidates.length; c++) {
+          var post = candidates[c];
+          if (post.hasAttribute(HIDDEN_ATTR) || post.hasAttribute(DECIDED_ATTR)) continue;
+          if (post.parentElement && post.parentElement.closest(POST_SELECTOR)) continue;
+          var name = sourceNameFor(post);
+          if (name && allowed.size > 0 && !allowed.has(name)) {
+            post.setAttribute(HIDDEN_ATTR, '1');
+          }
+        }
+      }
+    }
+  }
+
   // The feed loads/scrolls in progressively; debounce so a burst of DOM mutations
   // triggers one re-filter pass instead of dozens.
   var pending = null;
-  var observer = new MutationObserver(function () {
+  var observer = new MutationObserver(function (mutations) {
+    quickHideNewPosts(mutations);
     if (pending) return;
     pending = requestAnimationFrame(function () {
       pending = null;
