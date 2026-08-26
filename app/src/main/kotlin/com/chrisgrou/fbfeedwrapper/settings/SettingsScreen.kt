@@ -1,5 +1,6 @@
 package com.chrisgrou.fbfeedwrapper.settings
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -58,6 +59,11 @@ fun SettingsScreen(
     val allowedPages by settingsViewModel.allowedPages.collectAsState()
     val updateState by updateViewModel.state.collectAsState()
 
+    // Without this, the system back gesture has nothing registered to intercept it on
+    // this screen and falls through to the default (exit the app) instead of stepping
+    // back to the feed.
+    BackHandler(onBack = onBack)
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -115,6 +121,8 @@ fun AllowedSourcesScreen(
     val allowedPages by settingsViewModel.allowedPages.collectAsState()
     var newPageName by remember { mutableStateOf("") }
     var editingName by remember { mutableStateOf<String?>(null) }
+
+    BackHandler(onBack = onBack)
 
     Scaffold(
         topBar = {
