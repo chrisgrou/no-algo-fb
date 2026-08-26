@@ -39,6 +39,7 @@ import com.chrisgrou.fbfeedwrapper.debug.DUMP_FILTER_REPORT_JS
 import com.chrisgrou.fbfeedwrapper.debug.DUMP_VIEWPORT_HTML_JS
 import com.chrisgrou.fbfeedwrapper.debug.shareHtmlDump
 import com.chrisgrou.fbfeedwrapper.filter.FeedFilterBridge
+import com.chrisgrou.fbfeedwrapper.scroll.ScrollPositionBridge
 import com.chrisgrou.fbfeedwrapper.settings.SettingsScreen
 import com.chrisgrou.fbfeedwrapper.settings.SettingsViewModel
 import com.chrisgrou.fbfeedwrapper.sync.SourceSyncScreen
@@ -120,6 +121,7 @@ private fun FbWebViewScreen(
 ) {
     val context = LocalContext.current
     val filterBridge = remember { FeedFilterBridge() }
+    val scrollBridge = remember { ScrollPositionBridge(context) }
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
     var canGoBack by remember { mutableStateOf(false) }
     val allowedPages by settingsViewModel.allowedPages.collectAsState()
@@ -169,6 +171,7 @@ private fun FbWebViewScreen(
                     cookieManager.setAcceptThirdPartyCookies(this, true)
 
                     addJavascriptInterface(filterBridge, "NativeFilter")
+                    addJavascriptInterface(scrollBridge, "NativeScroll")
                     webViewClient = FbWebViewClient(onHistoryChanged = { view ->
                         canGoBack = view.canGoBack()
                     })
