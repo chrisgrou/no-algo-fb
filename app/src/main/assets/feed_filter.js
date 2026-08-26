@@ -36,18 +36,27 @@
     var posts = root.querySelectorAll
       ? root.querySelectorAll(POST_SELECTOR)
       : [];
+    var resolvedCount = 0;
     for (var i = 0; i < posts.length; i++) {
       var post = posts[i];
       var name = authorNameFor(post);
       // Unknown author (selector didn't match): leave visible rather than risk
       // hiding real content on a DOM shape we didn't anticipate.
       if (!name) continue;
+      resolvedCount++;
       // Empty allow-list: show everything until the user configures it.
       var isAllowed = allowed.size === 0 || allowed.has(name);
       // display:none (not visibility:hidden) so hidden posts collapse fully,
       // leaving no gap in the feed, per the project's filtering requirement.
       post.style.display = isAllowed ? '' : 'none';
     }
+    // Visible in chrome://inspect's console (see MainActivity's
+    // setWebContentsDebuggingEnabled) — use this to tell whether POST_SELECTOR /
+    // AUTHOR_SELECTOR match anything on the real page.
+    console.log(
+      '[ffw] posts matched by POST_SELECTOR:', posts.length,
+      '| authors resolved by AUTHOR_SELECTOR:', resolvedCount,
+    );
   }
 
   function applyFilter() {

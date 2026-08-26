@@ -107,6 +107,13 @@ private fun FbWebViewScreen(
         AndroidView(
             modifier = Modifier.fillMaxSize(),
             factory = { context ->
+                // Lets `chrome://inspect` on a USB-connected desktop attach DevTools to
+                // this WebView's live, authenticated session — the only practical way to
+                // read m.facebook.com's real DOM and fix the feed_filter.js selectors.
+                if (BuildConfig.DEBUG) {
+                    WebView.setWebContentsDebuggingEnabled(true)
+                }
+
                 WebView(context).apply {
                     layoutParams = ViewGroup.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT,
