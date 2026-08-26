@@ -63,6 +63,7 @@
     var avatars = document.querySelectorAll(AVATAR_SELECTOR);
     var seenRows = new Set();
     var resolvedCount = 0;
+    var hiddenCount = 0;
 
     for (var i = 0; i < avatars.length; i++) {
       var row = rowRootFor(avatars[i], scroller);
@@ -79,14 +80,18 @@
 
       // Empty allow-list: show everything until the user configures it.
       var isAllowed = allowed.size === 0 || allowed.has(name);
+      if (!isAllowed) hiddenCount++;
       // display:none (not visibility:hidden) so hidden posts collapse fully,
       // leaving no gap in the feed, per the project's filtering requirement.
       row.style.display = isAllowed ? '' : 'none';
     }
 
-    // Visible in chrome://inspect's console, or via the debug HTML-dump button —
-    // use this to tell whether AVATAR_SELECTOR still matches anything.
-    console.log('[ffw] post rows matched:', seenRows.size, '| authors resolved:', resolvedCount);
+    // Visible in chrome://inspect's console, and — via NativeFilter.reportStats —
+    // in the app's on-screen debug overlay (BuildConfig.DEBUG), so it's possible to
+    // tell whether AVATAR_SELECTOR still matches anything without a desktop.
+    console.log('[ffw] post rows matched:', seenRows.size, '| authors resolved:', resolvedCount, '| hidden:', hiddenCount);
+    window.NativeFilter && window.NativeFilter.reportStats &&
+      window.NativeFilter.reportStats(seenRows.size, resolvedCount, hiddenCount);
   }
 
   window.__ffwRefreshAllowed = function () {

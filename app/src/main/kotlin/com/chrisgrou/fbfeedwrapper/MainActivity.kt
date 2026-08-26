@@ -8,6 +8,7 @@ import android.webkit.WebView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -19,6 +20,7 @@ import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -28,6 +30,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -102,6 +105,7 @@ private fun FbWebViewScreen(
     val filterBridge = remember { FeedFilterBridge() }
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
     val allowedPages by settingsViewModel.allowedPages.collectAsState()
+    val filterStats by filterBridge.stats.collectAsState()
 
     // Re-applies the filter in the already-loaded page whenever the user
     // edits the allowed-pages list in Settings.
@@ -194,6 +198,21 @@ private fun FbWebViewScreen(
                     )
                 }
             }
+        }
+
+        // Debug-only: live filter counts, since console.log (see feed_filter.js) isn't
+        // visible without a desktop chrome://inspect connection.
+        if (BuildConfig.DEBUG) {
+            Text(
+                text = filterStats?.let {
+                    "filter: rows=${it.rowsMatched} authors=${it.authorsResolved} hidden=${it.hiddenCount} allowed=${allowedPages.size}"
+                } ?: "filter: no data yet",
+                color = Color.White,
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .background(Color.Black.copy(alpha = 0.6f))
+                    .padding(8.dp),
+            )
         }
 
         UpdateDialogHost(updateViewModel)
