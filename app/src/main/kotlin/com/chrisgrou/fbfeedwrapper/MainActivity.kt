@@ -1,10 +1,14 @@
 package com.chrisgrou.fbfeedwrapper
 
 import android.annotation.SuppressLint
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.os.Bundle
 import android.view.ViewGroup
 import android.webkit.CookieManager
 import android.webkit.WebView
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Box
@@ -12,6 +16,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material3.Icon
@@ -26,14 +31,17 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.chrisgrou.fbfeedwrapper.debug.DUMP_VIEWPORT_HTML_JS
 import com.chrisgrou.fbfeedwrapper.filter.FeedFilterBridge
 import com.chrisgrou.fbfeedwrapper.settings.SettingsScreen
 import com.chrisgrou.fbfeedwrapper.settings.SettingsViewModel
 import com.chrisgrou.fbfeedwrapper.update.UpdateDialogHost
 import com.chrisgrou.fbfeedwrapper.update.UpdateViewModel
+import org.json.JSONTokener
 
 private const val FEED_URL = "https://m.facebook.com"
 private const val WEBVIEW_STATE_KEY = "webview_state"
@@ -92,6 +100,7 @@ private fun FbWebViewScreen(
     updateViewModel: UpdateViewModel = viewModel(),
     settingsViewModel: SettingsViewModel = viewModel(),
 ) {
+    val context = LocalContext.current
     val filterBridge = remember { FeedFilterBridge() }
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
     val allowedPages by settingsViewModel.allowedPages.collectAsState()
@@ -164,6 +173,29 @@ private fun FbWebViewScreen(
                     contentDescription = "Έλεγχος για ενημερώσεις",
                     tint = MaterialTheme.colorScheme.primary,
                 )
+            }
+            // Debug-only: copies the HTML of whatever is on screen right now to the
+            // clipboard, so the real feed_filter.js selectors can be worked out from
+            // a phone alone, without a desktop chrome://inspect connection.
+            if (BuildConfig.DEBUG) {
+                IconButton(onClick = {
+                    webViewRef?.evaluateJavascript(DUMP_VIEWPORT_HTML_JS) { result ->
+                        val html = runCatching { JSONTokener(result).nextValue() as String }.getOrNull()
+                        if (html.isNullOrBlank()) {
+                            Toast.makeText(context, "Δεν βρέθηκε περιεχόμενο", Toast.LENGTH_SHORT).show()
+                            return@evaluateJavascript
+                        }
+                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        clipboard.setPrimaryClip(ClipData.newPlainText("feed html", html))
+                        Toast.makeText(context, "Αντιγράφηκε HTML (${html.length} χαρακτήρες)", Toast.LENGTH_SHORT).show()
+                    }
+                }) {
+                    Icon(
+                        imageVector = Icons.Filled.ContentCopy,
+                        contentDescription = "Debug: αντιγραφή ορατού HTML",
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
+                }
             }
         }
 
