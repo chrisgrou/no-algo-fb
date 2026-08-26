@@ -77,21 +77,41 @@
     return rect.width > 0 && rect.height > 0;
   }
 
-  // Climbs only if hiding the post container somehow didn't collapse it, and never
-  // past the scroller, so a mis-climb can't blank the whole feed.
+  // Hides the post, then collapses the wrapper elements around it. The framework nests
+  // each post in single-child wrappers that carry their own explicit height (e.g. a
+  // 239px-tall div wrapping a 237px one), so hiding only the post leaves those heights
+  // behind as a blank gap. A wrapper with exactly one element child exists solely to
+  // wrap that child, so it is safe to collapse; anything with siblings is left alone,
+  // and the climb never passes the scroller.
   function hide(post, scroller) {
     post.setAttribute(HIDDEN_ATTR, '1');
-    if (!occupiesSpace(post)) return true;
 
-    var node = post.parentElement;
+    var node = post;
     var guard = 0;
-    while (node && node !== scroller && node !== document.body && guard++ < 10) {
-      if (node.querySelectorAll(POST_SELECTOR).length > 1) break; // holds other posts
-      node.setAttribute(HIDDEN_ATTR, '1');
-      if (!occupiesSpace(post)) return true;
-      node = node.parentElement;
+    while (guard++ < 10) {
+      var parent = node.parentElement;
+      if (!parent || parent === scroller || parent === document.body) break;
+      if (parent.children.length !== 1) break;
+      parent.setAttribute(HIDDEN_ATTR, '1');
+      node = parent;
     }
-    return false;
+    return !occupiesSpace(post);
+  }
+
+  // Mirror of [hide]: clears the post's mark and any wrapper marks above it, so a
+  // source added to the allow-list later isn't left buried under a hidden wrapper.
+  function unhide(post, scroller) {
+    post.removeAttribute(HIDDEN_ATTR);
+
+    var node = post;
+    var guard = 0;
+    while (guard++ < 10) {
+      var parent = node.parentElement;
+      if (!parent || parent === scroller || parent === document.body) break;
+      if (!parent.hasAttribute(HIDDEN_ATTR)) break;
+      parent.removeAttribute(HIDDEN_ATTR);
+      node = parent;
+    }
   }
 
   function applyFilter() {
@@ -120,11 +140,12 @@
       resolved++;
 
       // Empty allow-list: show everything until the user configures it.
+      var scroller = post.closest(SCROLLER_SELECTOR);
       if (allowed.size === 0 || allowed.has(name)) {
-        post.removeAttribute(HIDDEN_ATTR);
+        unhide(post, scroller);
       } else {
         hiddenCount++;
-        if (hide(post, post.closest(SCROLLER_SELECTOR))) verifiedHidden++;
+        if (hide(post, scroller)) verifiedHidden++;
       }
     }
 
