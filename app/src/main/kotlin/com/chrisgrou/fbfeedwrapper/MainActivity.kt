@@ -34,6 +34,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.chrisgrou.fbfeedwrapper.debug.DUMP_COMMENT_SORT_REPORT_JS
 import com.chrisgrou.fbfeedwrapper.debug.DUMP_FILTER_REPORT_JS
 import com.chrisgrou.fbfeedwrapper.debug.DUMP_NAV_REPORT_JS
 import com.chrisgrou.fbfeedwrapper.debug.DUMP_VIEWPORT_HTML_JS
@@ -210,31 +211,30 @@ private fun FbWebViewScreen(
         // old canGoBack-based overlay icon didn't (pull-to-refresh flipped canGoBack
         // and never flipped it back, permanently hiding the icon even on the base feed).
         //
-        // The debug capture icon below is still gated on canGoBack, since it's only
-        // useful at the top level of the feed: a photo/video/post/comments view has its
-        // own close, share, and reaction controls at every edge of the screen (confirmed
-        // by an on-device screenshot — this icon sat directly on the photo viewer's own
-        // controls there), and there is no corner that's safe across every such view.
-        if (!canGoBack) {
+        // The debug capture icon needs to work on a post/comments view too (that's
+        // exactly where the comment-sort and empty-gap bugs show up), so unlike the
+        // old floating icons it isn't gated on canGoBack — it risks sitting on top of
+        // a photo viewer's own controls there, but that's an acceptable tradeoff for a
+        // debug-only build tool, not something shipped to users.
+        if (BuildConfig.DEBUG) {
             Row(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .padding(8.dp),
             ) {
-                // Debug-only developer tool, not a user-facing option: it needs the
-                // live feed WebView, which only exists on this screen, so it stays
-                // here rather than moving into Settings with everything else.
-                if (BuildConfig.DEBUG) {
-                    IconButton(onClick = {
-                        val web = webViewRef ?: return@IconButton
-                        web.evaluateJavascript(DUMP_FILTER_REPORT_JS) { reportResult ->
-                            val filterReport = runCatching { JSONTokener(reportResult).nextValue() as String }
+                IconButton(onClick = {
+                    val web = webViewRef ?: return@IconButton
+                    web.evaluateJavascript(DUMP_FILTER_REPORT_JS) { reportResult ->
+                        val filterReport = runCatching { JSONTokener(reportResult).nextValue() as String }
+                            .getOrNull().orEmpty()
+                        web.evaluateJavascript(DUMP_NAV_REPORT_JS) { navResult ->
+                            val navReport = runCatching { JSONTokener(navResult).nextValue() as String }
                                 .getOrNull().orEmpty()
-                            web.evaluateJavascript(DUMP_NAV_REPORT_JS) { navResult ->
-                                val navReport = runCatching { JSONTokener(navResult).nextValue() as String }
+                            web.evaluateJavascript(DUMP_COMMENT_SORT_REPORT_JS) { sortResult ->
+                                val sortReport = runCatching { JSONTokener(sortResult).nextValue() as String }
                                     .getOrNull().orEmpty()
-                                val report = listOf(filterReport, navReport).filter { it.isNotBlank() }
-                                    .joinToString("\n\n")
+                                val report = listOf(filterReport, navReport, sortReport)
+                                    .filter { it.isNotBlank() }.joinToString("\n\n")
                                 web.evaluateJavascript(DUMP_VIEWPORT_HTML_JS) { htmlResult ->
                                     val html = runCatching { JSONTokener(htmlResult).nextValue() as String }
                                         .getOrNull().orEmpty()
@@ -246,16 +246,18 @@ private fun FbWebViewScreen(
                                 }
                             }
                         }
-                    }) {
-                        Icon(
-                            imageVector = Icons.Filled.ContentCopy,
-                            contentDescription = "Debug: αποστολή ορατού HTML",
-                            tint = MaterialTheme.colorScheme.primary,
-                        )
                     }
+                }) {
+                    Icon(
+                        imageVector = Icons.Filled.ContentCopy,
+                        contentDescription = "Debug: αποστολή ορατού HTML",
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
                 }
             }
+        }
 
+        if (!canGoBack) {
             // Debug-only: live filter counts, since console.log (see feed_filter.js)
             // isn't visible without a desktop chrome://inspect connection.
             if (BuildConfig.DEBUG) {

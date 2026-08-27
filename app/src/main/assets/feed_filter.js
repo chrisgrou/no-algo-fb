@@ -62,6 +62,19 @@
     (document.head || document.documentElement).appendChild(style);
   }
 
+  // Restricts filtering to the main feed. Without this, opening a single post ran the
+  // exact same scan over it — and a post permalink page's own comments/replies also
+  // carry data-tracking-duration-id, so each comment was read as if it were a feed
+  // post: its first [role="link"] is the commenter's own name, never a group/page in
+  // the allow-list, so comments started getting hidden and their wrappers collapsed —
+  // the reported blank gaps below comments on a post's own page. Filtering by
+  // source only makes sense on the feed itself; a post the user deliberately opened
+  // (and its comments) should never be touched.
+  function isFeedPage() {
+    var p = location.pathname;
+    return p === '/' || p === '' || p.indexOf('/home.php') === 0;
+  }
+
   function getAllowed() {
     try {
       return new Set(JSON.parse(window.NativeFilter.getAllowedAuthorsJson()));
@@ -182,6 +195,7 @@
   // decide; the rest already carry their mark from a previous pass and are skipped
   // outright, without even reading their source name.
   function applyFilter(force) {
+    if (!isFeedPage()) return;
     var posts = document.querySelectorAll(POST_SELECTOR);
     var considered = 0;
     var resolved = 0;
@@ -255,6 +269,7 @@
   // and, for real, collapses these posts' now-empty wrappers; that part doesn't need
   // to be instant, only the hide does.
   function quickHideNewPosts(mutations) {
+    if (!isFeedPage()) return;
     for (var m = 0; m < mutations.length; m++) {
       var added = mutations[m].addedNodes;
       for (var a = 0; a < added.length; a++) {
