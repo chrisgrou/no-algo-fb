@@ -47,6 +47,8 @@ import com.chrisgrou.fbfeedwrapper.settings.DebugToggles
 import com.chrisgrou.fbfeedwrapper.settings.FeedDisplayPreferences
 import com.chrisgrou.fbfeedwrapper.settings.SettingsScreen
 import com.chrisgrou.fbfeedwrapper.settings.SettingsViewModel
+import com.chrisgrou.fbfeedwrapper.settings.TabIconsScreen
+import com.chrisgrou.fbfeedwrapper.settings.TabPreferences
 import com.chrisgrou.fbfeedwrapper.sync.SourceSyncScreen
 import com.chrisgrou.fbfeedwrapper.update.UpdateViewModel
 import org.json.JSONTokener
@@ -55,6 +57,7 @@ private const val FEED_URL = "https://m.facebook.com"
 private const val WEBVIEW_STATE_KEY = "webview_state"
 private const val REFRESH_FILTER_JS = "window.__ffwRefreshAllowed && window.__ffwRefreshAllowed();"
 private const val REFRESH_DISPLAY_JS = "window.__ffwRefreshDisplay && window.__ffwRefreshDisplay();"
+private const val REFRESH_TABS_JS = "window.__ffwRefreshTabs && window.__ffwRefreshTabs();"
 
 class MainActivity : ComponentActivity() {
 
@@ -111,7 +114,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private enum class Screen { Feed, Settings, Sync, AllowedSources, Debug }
+private enum class Screen { Feed, Settings, Sync, AllowedSources, Debug, TabIcons }
 
 @Composable
 private fun App(
@@ -127,6 +130,7 @@ private fun App(
     val context = LocalContext.current
     val debugToggles = remember { DebugToggles(context) }
     val displayPreferences = remember { FeedDisplayPreferences(context) }
+    val tabPreferences = remember { TabPreferences(context) }
 
     when (screen) {
         Screen.Feed -> FbWebViewScreen(
@@ -137,12 +141,14 @@ private fun App(
             settingsViewModel = settingsViewModel,
             debugToggles = debugToggles,
             displayPreferences = displayPreferences,
+            tabPreferences = tabPreferences,
         )
         Screen.Settings -> SettingsScreen(
             onBack = { screen = Screen.Feed },
             onOpenSync = { screen = Screen.Sync },
             onOpenAllowedSources = { screen = Screen.AllowedSources },
             onOpenDebug = { screen = Screen.Debug },
+            onOpenTabIcons = { screen = Screen.TabIcons },
             settingsViewModel = settingsViewModel,
             updateViewModel = updateViewModel,
             displayPreferences = displayPreferences,
@@ -162,6 +168,10 @@ private fun App(
             onBack = { screen = Screen.Settings },
             debugToggles = debugToggles,
         )
+        Screen.TabIcons -> TabIconsScreen(
+            onBack = { screen = Screen.Settings },
+            tabPreferences = tabPreferences,
+        )
     }
 }
 
@@ -175,6 +185,7 @@ private fun FbWebViewScreen(
     settingsViewModel: SettingsViewModel = viewModel(),
     debugToggles: DebugToggles,
     displayPreferences: FeedDisplayPreferences,
+    tabPreferences: TabPreferences,
 ) {
     val context = LocalContext.current
     val filterBridge = remember { FeedFilterBridge() }
@@ -197,6 +208,7 @@ private fun FbWebViewScreen(
     val debugButtonEnabled by debugToggles.debugButtonEnabled.collectAsState()
     val hideReactions by displayPreferences.hideReactions.collectAsState()
     val hideSuggested by displayPreferences.hideSuggested.collectAsState()
+    val hiddenTabs by tabPreferences.hiddenTabs.collectAsState()
 
     // Re-applies the filter in the already-loaded page whenever the user
     // edits the allowed-pages list in Settings.
@@ -211,6 +223,13 @@ private fun FbWebViewScreen(
     // screen wasn't on screen to react to it live.
     LaunchedEffect(hideReactions, hideSuggested) {
         webViewRef?.evaluateJavascript(REFRESH_DISPLAY_JS, null)
+    }
+
+    // Re-applies tab_visibility.js's hide/show state (and relocates the Settings
+    // overlay to the newly freed slot) whenever the user checks/unchecks a top-bar
+    // icon in Settings — same shape as the two effects above.
+    LaunchedEffect(hiddenTabs) {
+        webViewRef?.evaluateJavascript(REFRESH_TABS_JS, null)
     }
 
     // Without this, the system back gesture has nothing registered to intercept it, so
@@ -254,6 +273,7 @@ private fun FbWebViewScreen(
                     addJavascriptInterface(debugToggles, "NativeFlags")
                     addJavascriptInterface(navBridge, "NativeNav")
                     addJavascriptInterface(displayPreferences, "NativeDisplay")
+                    addJavascriptInterface(tabPreferences, "NativeTabs")
                     webViewClient = FbWebViewClient(onHistoryChanged = { view ->
                         canGoBack = view.canGoBack()
                     })
@@ -276,9 +296,10 @@ private fun FbWebViewScreen(
         )
 
         // The floating Settings icon moved out (reachable via nav_override.js's
-        // overlay on Facebook's own Marketplace tab instead). The debug-capture icon
-        // stays floating, though — its whole point is capturing whatever screen the
-        // bug is actually on (e.g. the Replies pagination issue), which a button
+        // overlay in Facebook's own top tab bar instead — see TabIconsScreen for
+        // where the user picks which native icon's slot it uses). The debug-capture
+        // icon stays floating, though — its whole point is capturing whatever screen
+        // the bug is actually on (e.g. the Replies pagination issue), which a button
         // buried inside Settings can't do since navigating there leaves that screen.
         // Toggleable now (Settings → Debug) rather than always shown.
         if (BuildConfig.DEBUG && debugButtonEnabled) {

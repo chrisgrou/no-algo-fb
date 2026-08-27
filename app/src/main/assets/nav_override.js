@@ -1,11 +1,19 @@
-// Puts a Settings entry point where Facebook's own Marketplace tab sits, in its
-// top tab bar (Feature: nav override). Never writes to Facebook's own DOM — an
-// earlier version mutated the Marketplace tab directly (replaceWith on its icon,
-// overwriting a leaf's textContent) and the *entire* tab bar started disappearing
-// after a pull-to-refresh, consistent with React's reconciler choking on a
-// removeChild/replaceChild it didn't expect. This version only ever reads layout
-// (getBoundingClientRect/getComputedStyle) and paints an independent, opaque button
-// of our own on top of the tab (same position/size), synced to its real position.
+// Puts a Settings entry point in Facebook's own top tab bar (Feature: nav override).
+// Never writes to Facebook's own DOM — an earlier version mutated the Marketplace tab
+// directly (replaceWith on its icon, overwriting a leaf's textContent) and the
+// *entire* tab bar started disappearing after a pull-to-refresh, consistent with
+// React's reconciler choking on a removeChild/replaceChild it didn't expect. This
+// version only ever reads layout (getBoundingClientRect/getComputedStyle) and paints
+// an independent, opaque button of our own on top of a tab, synced to its real
+// position.
+//
+// Which tab it sits over is chosen to never visually cover a still-visible native
+// icon: tab_visibility.js (loaded just before this) marks whichever tab(s) the user
+// has hidden via Settings with data-ffw-tab-hidden="1" — hidden with visibility, not
+// display, so the tab keeps its layout slot as empty space. This anchors on the first
+// such freed slot. Only when the user hasn't hidden anything yet does it fall back to
+// the old default (Marketplace) so the app still has a working Settings entry point
+// out of the box.
 //
 // The tab bar itself can still go missing (Facebook's own stuck-hidden bug — see
 // nav_bar_watchdog.js, injected alongside this and loaded first, which unsticks it);
@@ -31,6 +39,10 @@
     return svg;
   }
 
+  function findFreedTab() {
+    return document.querySelector('[role="tablist"] [role="tab"][data-ffw-tab-hidden="1"]');
+  }
+
   function findMarketplaceTab() {
     var tabs = document.querySelectorAll('[role="tab"]');
     for (var i = 0; i < tabs.length; i++) {
@@ -38,6 +50,10 @@
       if (label.indexOf('marketplace') !== -1) return tabs[i];
     }
     return null;
+  }
+
+  function findAnchorTab() {
+    return findFreedTab() || findMarketplaceTab();
   }
 
   var overlay = null;
@@ -87,7 +103,7 @@
   // keeps our button from floating in a stale position over content that's no longer
   // a tab bar.
   function sync() {
-    var tab = findMarketplaceTab() || trackedTab;
+    var tab = findAnchorTab() || trackedTab;
     if (!tab || !document.body.contains(tab)) {
       if (overlay) overlay.style.display = 'none';
       trackedTab = null;
@@ -113,6 +129,11 @@
     el.style.background = backgroundBehind(tab);
     el.style.display = 'flex';
   }
+
+  // Exposed so tab_visibility.js can trigger an immediate re-anchor right after the
+  // user hides/shows a tab in Settings, instead of waiting for the next scroll/resize
+  // or the debounced MutationObserver below to happen to fire.
+  window.__ffwSyncNavOverlay = sync;
 
   sync();
 
