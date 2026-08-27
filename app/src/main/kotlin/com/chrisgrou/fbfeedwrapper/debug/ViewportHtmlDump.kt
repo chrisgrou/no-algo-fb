@@ -80,6 +80,57 @@ const val DUMP_FILTER_REPORT_JS = """
 })();
 """
 
+/**
+ * Diagnostic for the top nav bar (still-unsolved: it sometimes doesn't reappear on
+ * scroll-up after Facebook hides it) plus the two page-identity signals the rest of
+ * the app now depends on (document.title, drives both feed_filter.js's isFeedPage()
+ * and the floating Settings icon's visibility) — so a capture right when the bar is
+ * missing shows both "is it really gone" and "does the app agree about what page
+ * this is" in one file, instead of needing several separate captures.
+ */
+const val DUMP_NAV_REPORT_JS = """
+(function () {
+  var lines = ['===== NAV BAR DIAGNOSTIC ====='];
+  lines.push('document.title = "' + document.title + '"');
+  lines.push('location.href = "' + location.href + '"');
+  lines.push('window.scrollY = ' + window.scrollY);
+  lines.push('');
+
+  var tablists = document.querySelectorAll('[role="tablist"]');
+  lines.push('[role="tablist"] COUNT: ' + tablists.length);
+  for (var k = 0; k < tablists.length; k++) {
+    var tl = tablists[k];
+    var tlRect = tl.getBoundingClientRect();
+    var tlStyle = getComputedStyle(tl);
+    lines.push('  [' + k + '] rect: top=' + Math.round(tlRect.top) + ' w=' + Math.round(tlRect.width) +
+      ' h=' + Math.round(tlRect.height) + ' display=' + tlStyle.display +
+      ' visibility=' + tlStyle.visibility + ' opacity=' + tlStyle.opacity);
+    lines.push('  inline style="' + (tl.getAttribute('style') || '') + '"');
+    var p = tl.parentElement;
+    var depth = 0;
+    while (p && depth < 3) {
+      var pr = p.getBoundingClientRect();
+      var ps = getComputedStyle(p);
+      lines.push('  ancestor[' + depth + '] tag=' + p.tagName + ' rect: h=' + Math.round(pr.height) +
+        ' display=' + ps.display + ' style="' + (p.getAttribute('style') || '') + '"');
+      p = p.parentElement;
+      depth++;
+    }
+  }
+  lines.push('');
+
+  var tabs = document.querySelectorAll('[role="tab"]');
+  lines.push('[role="tab"] COUNT: ' + tabs.length);
+  for (var i = 0; i < tabs.length; i++) {
+    var t = tabs[i];
+    var tRect = t.getBoundingClientRect();
+    lines.push('  [' + i + '] aria-label="' + (t.getAttribute('aria-label') || '') + '" tag=' + t.tagName +
+      ' rect: top=' + Math.round(tRect.top) + ' w=' + Math.round(tRect.width) + ' h=' + Math.round(tRect.height));
+  }
+  return lines.join('\n');
+})();
+"""
+
 /** Writes the debug capture to a cache file and opens the system share sheet for it, so
  *  it can be sent anywhere (email, messaging, "save to files") without the clipboard's
  *  size limits. */

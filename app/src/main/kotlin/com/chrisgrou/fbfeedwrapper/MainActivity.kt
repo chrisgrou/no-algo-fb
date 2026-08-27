@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.os.Bundle
 import android.view.ViewGroup
 import android.webkit.CookieManager
+import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -36,6 +37,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.chrisgrou.fbfeedwrapper.debug.DUMP_FILTER_REPORT_JS
+import com.chrisgrou.fbfeedwrapper.debug.DUMP_NAV_REPORT_JS
 import com.chrisgrou.fbfeedwrapper.debug.DUMP_VIEWPORT_HTML_JS
 import com.chrisgrou.fbfeedwrapper.debug.shareHtmlDump
 import com.chrisgrou.fbfeedwrapper.filter.FeedFilterBridge
@@ -136,6 +138,15 @@ private fun FbWebViewScreen(
     val scrollBridge = remember { ScrollPositionBridge(context) }
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
     var canGoBack by remember { mutableStateOf(false) }
+    // Gates the floating Settings icon. Not canGoBack: this client evidently pushes
+    // "screens" (opening a post, its Replies, ...) via its own internal mechanism
+    // rather than always through the browser's URL/history APIs — an on-device
+    // capture showed WebView.canGoBack() getting stuck true after returning from a
+    // post, permanently hiding the icon. document.title changes reliably per screen
+    // ("Facebook" on the main feed, "Replies"/a post's own title elsewhere — see
+    // feed_filter.js's isFeedPage(), which hit the same problem with the URL and was
+    // fixed the same way), so track that instead via WebChromeClient.onReceivedTitle.
+    var isBaseFeed by remember { mutableStateOf(true) }
     val allowedPages by settingsViewModel.allowedPages.collectAsState()
     val filterStats by filterBridge.stats.collectAsState()
 
@@ -188,6 +199,11 @@ private fun FbWebViewScreen(
                     webViewClient = FbWebViewClient(onHistoryChanged = { view ->
                         canGoBack = view.canGoBack()
                     })
+                    webChromeClient = object : WebChromeClient() {
+                        override fun onReceivedTitle(view: WebView, title: String?) {
+                            isBaseFeed = title == "Facebook"
+                        }
+                    }
 
                     onWebViewCreated(this)
                     webViewRef = this
@@ -214,16 +230,22 @@ private fun FbWebViewScreen(
                 IconButton(onClick = {
                     val web = webViewRef ?: return@IconButton
                     web.evaluateJavascript(DUMP_FILTER_REPORT_JS) { reportResult ->
-                        val report = runCatching { JSONTokener(reportResult).nextValue() as String }
+                        val filterReport = runCatching { JSONTokener(reportResult).nextValue() as String }
                             .getOrNull().orEmpty()
-                        web.evaluateJavascript(DUMP_VIEWPORT_HTML_JS) { htmlResult ->
-                            val html = runCatching { JSONTokener(htmlResult).nextValue() as String }
+                        web.evaluateJavascript(DUMP_NAV_REPORT_JS) { navResult ->
+                            val navReport = runCatching { JSONTokener(navResult).nextValue() as String }
                                 .getOrNull().orEmpty()
-                            if (report.isBlank() && html.isBlank()) {
-                                Toast.makeText(context, "Δεν βρέθηκε περιεχόμενο", Toast.LENGTH_SHORT).show()
-                                return@evaluateJavascript
+                            val report = listOf(filterReport, navReport)
+                                .filter { it.isNotBlank() }.joinToString("\n\n")
+                            web.evaluateJavascript(DUMP_VIEWPORT_HTML_JS) { htmlResult ->
+                                val html = runCatching { JSONTokener(htmlResult).nextValue() as String }
+                                    .getOrNull().orEmpty()
+                                if (report.isBlank() && html.isBlank()) {
+                                    Toast.makeText(context, "Δεν βρέθηκε περιεχόμενο", Toast.LENGTH_SHORT).show()
+                                    return@evaluateJavascript
+                                }
+                                shareHtmlDump(context, report, html)
                             }
-                            shareHtmlDump(context, report, html)
                         }
                     }
                 }) {
@@ -241,19 +263,19 @@ private fun FbWebViewScreen(
         // and reaction controls at every edge of the screen (confirmed by an on-device
         // screenshot — our top-right icons sat directly on the photo viewer's own
         // controls there), and there is no corner that's safe across every such view.
-        // canGoBack (see the BackHandler wiring) is exactly "have we navigated away
-        // from the feed", so it doubles as the signal for this.
+        // isBaseFeed is exactly "have we navigated away from the feed", so it doubles
+        // as the signal for this.
         //
-        // This — a floating icon gated on canGoBack — is deliberately back to the
-        // original design: anchoring Settings to Facebook's own Marketplace tab
-        // (nav_override.js, since removed) went through three different approaches,
-        // each surfacing a new failure mode (a mutation that broke Facebook's own
-        // React reconciler on refresh; an overlay that depended on Facebook's own
-        // scroll-triggered show/hide behavior for its top tab bar, which sometimes
-        // never came back). That's Facebook's own client behavior to chase, not
-        // something reliably fixable from outside it — this known-working baseline is
-        // worth more than another attempt.
-        if (!canGoBack) {
+        // This — a floating icon — is deliberately back to the original design:
+        // anchoring Settings to Facebook's own Marketplace tab (nav_override.js,
+        // since removed) went through three different approaches, each surfacing a
+        // new failure mode (a mutation that broke Facebook's own React reconciler on
+        // refresh; an overlay that depended on Facebook's own scroll-triggered
+        // show/hide behavior for its top tab bar, which sometimes never came back).
+        // That's Facebook's own client behavior to chase, not something reliably
+        // fixable from outside it — this known-working baseline is worth more than
+        // another attempt.
+        if (isBaseFeed) {
             // Only the settings icon on the front screen — updating, syncing, and
             // editing the allow-list all live inside Settings now.
             Row(
