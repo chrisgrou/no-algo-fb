@@ -56,11 +56,14 @@ fun SettingsScreen(
     onOpenSync: () -> Unit,
     onOpenAllowedSources: () -> Unit,
     onOpenDebug: () -> Unit,
+    displayPreferences: FeedDisplayPreferences,
     settingsViewModel: SettingsViewModel = viewModel(),
     updateViewModel: UpdateViewModel = viewModel(),
 ) {
     val allowedPages by settingsViewModel.allowedPages.collectAsState()
     val updateState by updateViewModel.state.collectAsState()
+    val hideReactions by displayPreferences.hideReactions.collectAsState()
+    val hideSuggested by displayPreferences.hideSuggested.collectAsState()
 
     // Without this, the system back gesture has nothing registered to intercept it on
     // this screen and falls through to the default (exit the app) instead of stepping
@@ -103,6 +106,28 @@ fun SettingsScreen(
                     leadingContent = { Icon(Icons.Filled.List, contentDescription = null) },
                     trailingContent = { Icon(Icons.Filled.ChevronRight, contentDescription = null) },
                     modifier = Modifier.fillMaxWidth().clickable(onClick = onOpenAllowedSources),
+                )
+                ListItem(
+                    headlineContent = { Text("Απόκρυψη reactions") },
+                    supportingContent = { Text("Κρύβει τον αριθμό reactions κάτω από posts και σχόλια") },
+                    trailingContent = {
+                        Switch(
+                            checked = hideReactions,
+                            onCheckedChange = displayPreferences::setHideReactions,
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                ListItem(
+                    headlineContent = { Text("Απόκρυψη \"Suggested for you\"") },
+                    supportingContent = { Text("Κρύβει τις προτεινόμενες ομάδες μέσα στο feed") },
+                    trailingContent = {
+                        Switch(
+                            checked = hideSuggested,
+                            onCheckedChange = displayPreferences::setHideSuggested,
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth(),
                 )
                 ListItem(
                     headlineContent = { Text("Debug") },

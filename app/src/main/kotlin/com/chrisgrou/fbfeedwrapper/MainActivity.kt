@@ -39,6 +39,7 @@ import com.chrisgrou.fbfeedwrapper.scroll.ScrollPositionBridge
 import com.chrisgrou.fbfeedwrapper.settings.AllowedSourcesScreen
 import com.chrisgrou.fbfeedwrapper.settings.DebugScreen
 import com.chrisgrou.fbfeedwrapper.settings.DebugToggles
+import com.chrisgrou.fbfeedwrapper.settings.FeedDisplayPreferences
 import com.chrisgrou.fbfeedwrapper.settings.SettingsScreen
 import com.chrisgrou.fbfeedwrapper.settings.SettingsViewModel
 import com.chrisgrou.fbfeedwrapper.sync.SourceSyncScreen
@@ -48,6 +49,7 @@ import org.json.JSONTokener
 private const val FEED_URL = "https://m.facebook.com"
 private const val WEBVIEW_STATE_KEY = "webview_state"
 private const val REFRESH_FILTER_JS = "window.__ffwRefreshAllowed && window.__ffwRefreshAllowed();"
+private const val REFRESH_DISPLAY_JS = "window.__ffwRefreshDisplay && window.__ffwRefreshDisplay();"
 
 class MainActivity : ComponentActivity() {
 
@@ -119,6 +121,7 @@ private fun App(
     val updateViewModel: UpdateViewModel = viewModel()
     val context = LocalContext.current
     val debugToggles = remember { DebugToggles(context) }
+    val displayPreferences = remember { FeedDisplayPreferences(context) }
 
     when (screen) {
         Screen.Feed -> FbWebViewScreen(
@@ -127,6 +130,7 @@ private fun App(
             onOpenSettings = { screen = Screen.Settings },
             settingsViewModel = settingsViewModel,
             debugToggles = debugToggles,
+            displayPreferences = displayPreferences,
         )
         Screen.Settings -> SettingsScreen(
             onBack = { screen = Screen.Feed },
@@ -135,6 +139,7 @@ private fun App(
             onOpenDebug = { screen = Screen.Debug },
             settingsViewModel = settingsViewModel,
             updateViewModel = updateViewModel,
+            displayPreferences = displayPreferences,
         )
         Screen.Sync -> SourceSyncScreen(
             onCancel = { screen = Screen.Settings },
@@ -163,6 +168,7 @@ private fun FbWebViewScreen(
     onOpenSettings: () -> Unit,
     settingsViewModel: SettingsViewModel = viewModel(),
     debugToggles: DebugToggles,
+    displayPreferences: FeedDisplayPreferences,
 ) {
     val context = LocalContext.current
     val filterBridge = remember { FeedFilterBridge() }
@@ -182,12 +188,22 @@ private fun FbWebViewScreen(
     val allowedPages by settingsViewModel.allowedPages.collectAsState()
     val filterStats by filterBridge.stats.collectAsState()
     val statsBannerEnabled by debugToggles.statsBannerEnabled.collectAsState()
+    val hideReactions by displayPreferences.hideReactions.collectAsState()
+    val hideSuggested by displayPreferences.hideSuggested.collectAsState()
 
     // Re-applies the filter in the already-loaded page whenever the user
     // edits the allowed-pages list in Settings.
     LaunchedEffect(allowedPages) {
         filterBridge.allowedAuthors = allowedPages
         webViewRef?.evaluateJavascript(REFRESH_FILTER_JS, null)
+    }
+
+    // Re-applies feed_display.js's hide/show state whenever the user flips a display
+    // toggle in Settings — including the first composition after navigating back to
+    // the feed from there, which is what actually picks up a change made while this
+    // screen wasn't on screen to react to it live.
+    LaunchedEffect(hideReactions, hideSuggested) {
+        webViewRef?.evaluateJavascript(REFRESH_DISPLAY_JS, null)
     }
 
     // Without this, the system back gesture has nothing registered to intercept it, so
@@ -230,6 +246,7 @@ private fun FbWebViewScreen(
                     addJavascriptInterface(scrollBridge, "NativeScroll")
                     addJavascriptInterface(debugToggles, "NativeFlags")
                     addJavascriptInterface(navBridge, "NativeNav")
+                    addJavascriptInterface(displayPreferences, "NativeDisplay")
                     webViewClient = FbWebViewClient(onHistoryChanged = { view ->
                         canGoBack = view.canGoBack()
                     })
