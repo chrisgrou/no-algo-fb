@@ -9,11 +9,13 @@
 //
 // Which tab it sits over is chosen to never visually cover a still-visible native
 // icon: tab_visibility.js (loaded just before this) marks whichever tab(s) the user
-// has hidden via Settings with data-ffw-tab-hidden="1" — hidden with visibility, not
-// display, so the tab keeps its layout slot as empty space. This anchors on the first
-// such freed slot. Only when the user hasn't hidden anything yet does it fall back to
-// the old default (Marketplace) so the app still has a working Settings entry point
-// out of the box.
+// has hidden via Settings with data-ffw-tab-hidden="1", and this anchors on the first
+// one in DOM order. If more than one tab is hidden, tab_visibility.js's own relayout
+// collapses every other hidden slot and redistributes the remaining tabs (this
+// anchor slot included) across the bar's full width, so the row always fills
+// edge-to-edge rather than leaving a gap where an extra hidden tab used to be. Only
+// when the user hasn't hidden anything yet does this fall back to the old default
+// (Marketplace) so the app still has a working Settings entry point out of the box.
 //
 // The tab bar itself can still go missing (Facebook's own stuck-hidden bug — see
 // nav_bar_watchdog.js, injected alongside this and loaded first, which unsticks it);
@@ -54,6 +56,21 @@
 
   function findAnchorTab() {
     return findFreedTab() || findMarketplaceTab();
+  }
+
+  // Facebook's pull-to-refresh spinner isn't revealed by scrolling — it's a sibling
+  // element whose own margin-top animates from a resting -36px up toward 0px as the
+  // user drags, with no scroll event firing at all (an on-device capture caught it
+  // resting at exactly "-36px"). Our overlay only re-syncs on scroll/resize/DOM
+  // mutation, so during that drag it stays glued to its last position while the real
+  // tab bar (and the spinner now appearing beside/under it) move — which is exactly
+  // why the overlay was seen floating over, and hiding, the spinner. Hiding the
+  // overlay for the duration of an active pull avoids covering it at all.
+  function pullToRefreshActive() {
+    var el = document.querySelector('.pull-to-refresh-spinner-container');
+    if (!el) return false;
+    var mt = parseFloat(el.style.marginTop);
+    return !isNaN(mt) && mt > -30;
   }
 
   var overlay = null;
@@ -102,7 +119,28 @@
   // happens the tab's rect collapses to nothing, so hiding the overlay in that case
   // keeps our button from floating in a stale position over content that's no longer
   // a tab bar.
+  // Draws our own bottom divider instead of relying on the anchor tab's — the anchor
+  // is always visibility:hidden now (see tab_visibility.js), which hides whatever
+  // border/line it used to carry too, so there's nothing left to "peek through"
+  // underneath a shorter overlay the way there was when the overlay sat on Facebook's
+  // own still-visible Marketplace tab. Reads the tab bar's own live computed
+  // border-bottom instead of a hardcoded color, same reasoning as backgroundBehind()
+  // above; if the bar itself doesn't carry one (e.g. it's drawn some other way not
+  // reachable via getComputedStyle, such as a box-shadow), this simply draws nothing
+  // rather than guessing a color that might not match.
+  function dividerBorder(tablist) {
+    var cs = getComputedStyle(tablist);
+    if (parseFloat(cs.borderBottomWidth) > 0 && cs.borderBottomColor && cs.borderBottomColor !== 'rgba(0, 0, 0, 0)') {
+      return cs.borderBottomWidth + ' ' + cs.borderBottomStyle + ' ' + cs.borderBottomColor;
+    }
+    return '';
+  }
+
   function sync() {
+    if (pullToRefreshActive()) {
+      if (overlay) overlay.style.display = 'none';
+      return;
+    }
     var tab = findAnchorTab() || trackedTab;
     if (!tab || !document.body.contains(tab)) {
       if (overlay) overlay.style.display = 'none';
@@ -119,14 +157,10 @@
     el.style.left = rect.left + 'px';
     el.style.top = rect.top + 'px';
     el.style.width = rect.width + 'px';
-    // -2px, not the full rect.height: an on-device capture found each tab carries a
-    // thin (2px) divider strip of its own — a real child element, its own exact
-    // color — that visually lines up with its neighbors to look like one continuous
-    // bar under the whole row. Covering it with our own approximated background
-    // color broke that line right under this tab. Leaving the bottom 2px of the real
-    // tab uncovered lets its own genuine divider strip keep showing through instead.
-    el.style.height = Math.max(0, rect.height - 2) + 'px';
+    el.style.height = rect.height + 'px';
     el.style.background = backgroundBehind(tab);
+    var tablist = tab.closest('[role="tablist"]');
+    el.style.borderBottom = tablist ? dividerBorder(tablist) : '';
     el.style.display = 'flex';
   }
 
@@ -158,4 +192,16 @@
     }, 150);
   });
   observer.observe(document.body, { childList: true, subtree: true });
+
+  // The pull-to-refresh drag itself never fires a scroll event (see
+  // pullToRefreshActive() above) — only this element's own style attribute changes as
+  // the user drags and as it springs back afterwards. Watching it directly, scoped to
+  // this one element rather than document-wide, is what actually catches the gesture
+  // in time to hide the overlay during it and show it again right after — the
+  // childList-only observer above wouldn't see either edge of this reliably.
+  var pullSpinner = document.querySelector('.pull-to-refresh-spinner-container');
+  if (pullSpinner) {
+    var pullObserver = new MutationObserver(sync);
+    pullObserver.observe(pullSpinner, { attributes: true, attributeFilter: ['style'] });
+  }
 })();
