@@ -70,9 +70,16 @@
   // the reported blank gaps below comments on a post's own page. Filtering by
   // source only makes sense on the feed itself; a post the user deliberately opened
   // (and its comments) should never be touched.
+  //
+  // Checks document.title, not location.pathname: an on-device capture of the
+  // "Replies" screen (opening a comment's own replies) showed the guard doing
+  // nothing there — pathname stayed "/", the same as the main feed — while
+  // document.title had changed to "Replies" (the feed's is plain "Facebook"). This
+  // client evidently pushes "screens" (WebLitePipe's own screenID/topScreenURI
+  // concept, visible in its bootstrap JS) rather than routing through the URL for
+  // at least some of its navigation, so pathname alone can't tell screens apart.
   function isFeedPage() {
-    var p = location.pathname;
-    return p === '/' || p === '' || p.indexOf('/home.php') === 0;
+    return document.title === 'Facebook';
   }
 
   // Temporary kill switch (Settings → toggles) for isolating whether this guard has
