@@ -41,10 +41,16 @@
     else el.removeAttribute(HIDDEN_ATTR);
   }
 
-  // Matches the reaction-count pill's own accessible name on both posts and
-  // comments ("2 reactions", "1 Reaction") — confirmed against an on-device capture,
-  // not guessed: this is the actual aria-label Facebook renders on that element.
+  // Matches the reaction-count pill's own accessible name — confirmed against two
+  // separate on-device captures, not guessed, and it turns out to differ by level:
+  // a comment's pill reads "2 reactions"/"1 Reaction", but a post's own pill (what
+  // the "👍 1" summary above the Like/Comment/Share row actually is) reads "1
+  // reacted. Tap to see comments and reactions" or "You and 333 others reacted. Tap
+  // to see comments and reactions" instead — a completely different accessible-name
+  // shape. The comment-level pattern alone was hiding comment reactions fine while
+  // leaving every post's own reaction pill untouched, which is what was reported.
   var REACTIONS_RE = /^\d+\s+reactions?$/i;
+  var REACTED_RE = /reacted\.\s*tap to see comments and reactions$/i;
 
   function applyReactions(enabled) {
     var newNodes = document.querySelectorAll('[aria-label]:not([' + REACTION_CHECKED_ATTR + '])');
@@ -52,7 +58,7 @@
       var node = newNodes[i];
       node.setAttribute(REACTION_CHECKED_ATTR, '1');
       var label = (node.getAttribute('aria-label') || '').trim();
-      if (REACTIONS_RE.test(label)) node.setAttribute(REACTION_MARK_ATTR, '1');
+      if (REACTIONS_RE.test(label) || REACTED_RE.test(label)) node.setAttribute(REACTION_MARK_ATTR, '1');
     }
     var marked = document.querySelectorAll('[' + REACTION_MARK_ATTR + '="1"]');
     for (var j = 0; j < marked.length; j++) setHidden(marked[j], enabled);
