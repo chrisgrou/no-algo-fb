@@ -46,24 +46,46 @@
     // The icon is rendered one of a few ways depending on Facebook's build: an inline
     // <svg>, an <img> (sprite/data-uri), or a leaf element using a private icon font
     // via mask-image/background-image/a mapped codepoint. Handle the SVG/img cases by
-    // swapping in a real gear icon of our own; fall back to a text glyph on whichever
-    // leaf element carries the icon when neither is present.
+    // swapping in a real gear icon of our own; fall back to a text glyph otherwise.
     var iconNode = tab.querySelector('svg, img');
     if (iconNode) {
       iconNode.replaceWith(gearSvg());
     } else {
-      function deepestLeaf(el) {
-        var kids = el.children;
-        if (!kids || kids.length === 0) return el;
-        var best = el;
-        for (var i = 0; i < kids.length; i++) {
-          var candidate = deepestLeaf(kids[i]);
-          if (candidate !== el) best = candidate;
+      // An on-device capture found the real markup: the icon glyph itself sits in a
+      // `.native-text` element (an MComponent "ServerTextArea"), same as the tab's
+      // notification-count badge does — but the badge's copy carries an extra
+      // `ref-key` class ours doesn't. Picking "the deepest leaf" without that
+      // distinction landed on the (usually empty/hidden) badge span instead of the
+      // actually-visible icon glyph, leaving the real icon untouched.
+      var candidates = tab.querySelectorAll('.native-text');
+      var target = null;
+      for (var i = 0; i < candidates.length; i++) {
+        if (!candidates[i].classList.contains('ref-key')) {
+          target = candidates[i];
+          break;
         }
-        return best;
       }
 
-      var leaf = deepestLeaf(tab);
+      // Fall back to the old "deepest leaf anywhere in the tab" heuristic if that
+      // more specific markup isn't present (a future Facebook build, a differently
+      // laid out tab) rather than doing nothing.
+      if (!target) {
+        (function () {
+          function deepestLeaf(el) {
+            var kids = el.children;
+            if (!kids || kids.length === 0) return el;
+            var best = el;
+            for (var i = 0; i < kids.length; i++) {
+              var candidate = deepestLeaf(kids[i]);
+              if (candidate !== el) best = candidate;
+            }
+            return best;
+          }
+          target = deepestLeaf(tab);
+        })();
+      }
+
+      var leaf = target.querySelector('span') || target;
       leaf.style.backgroundImage = 'none';
       leaf.style.maskImage = 'none';
       leaf.style.webkitMaskImage = 'none';
