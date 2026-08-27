@@ -44,6 +44,7 @@ import com.chrisgrou.fbfeedwrapper.scroll.ScrollPositionBridge
 import com.chrisgrou.fbfeedwrapper.settings.AllowedSourcesScreen
 import com.chrisgrou.fbfeedwrapper.settings.DebugScreen
 import com.chrisgrou.fbfeedwrapper.settings.DebugToggles
+import com.chrisgrou.fbfeedwrapper.settings.EnhancementsScreen
 import com.chrisgrou.fbfeedwrapper.settings.FeedDisplayPreferences
 import com.chrisgrou.fbfeedwrapper.settings.SettingsScreen
 import com.chrisgrou.fbfeedwrapper.settings.SettingsViewModel
@@ -58,6 +59,7 @@ private const val WEBVIEW_STATE_KEY = "webview_state"
 private const val REFRESH_FILTER_JS = "window.__ffwRefreshAllowed && window.__ffwRefreshAllowed();"
 private const val REFRESH_DISPLAY_JS = "window.__ffwRefreshDisplay && window.__ffwRefreshDisplay();"
 private const val REFRESH_TABS_JS = "window.__ffwRefreshTabs && window.__ffwRefreshTabs();"
+private const val REFRESH_SCROLL_TOP_JS = "window.__ffwRefreshScrollTop && window.__ffwRefreshScrollTop();"
 
 class MainActivity : ComponentActivity() {
 
@@ -114,7 +116,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private enum class Screen { Feed, Settings, Sync, AllowedSources, Debug, TabIcons }
+private enum class Screen { Feed, Settings, Sync, AllowedSources, Debug, TabIcons, Enhancements }
 
 @Composable
 private fun App(
@@ -148,10 +150,9 @@ private fun App(
             onOpenSync = { screen = Screen.Sync },
             onOpenAllowedSources = { screen = Screen.AllowedSources },
             onOpenDebug = { screen = Screen.Debug },
-            onOpenTabIcons = { screen = Screen.TabIcons },
+            onOpenEnhancements = { screen = Screen.Enhancements },
             settingsViewModel = settingsViewModel,
             updateViewModel = updateViewModel,
-            displayPreferences = displayPreferences,
         )
         Screen.Sync -> SourceSyncScreen(
             onCancel = { screen = Screen.Settings },
@@ -169,8 +170,13 @@ private fun App(
             debugToggles = debugToggles,
         )
         Screen.TabIcons -> TabIconsScreen(
-            onBack = { screen = Screen.Settings },
+            onBack = { screen = Screen.Enhancements },
             tabPreferences = tabPreferences,
+        )
+        Screen.Enhancements -> EnhancementsScreen(
+            onBack = { screen = Screen.Settings },
+            onOpenTabIcons = { screen = Screen.TabIcons },
+            displayPreferences = displayPreferences,
         )
     }
 }
@@ -208,6 +214,7 @@ private fun FbWebViewScreen(
     val debugButtonEnabled by debugToggles.debugButtonEnabled.collectAsState()
     val hideReactions by displayPreferences.hideReactions.collectAsState()
     val hideSuggested by displayPreferences.hideSuggested.collectAsState()
+    val showScrollTopButton by displayPreferences.showScrollTopButton.collectAsState()
     val hiddenTabs by tabPreferences.hiddenTabs.collectAsState()
 
     // Re-applies the filter in the already-loaded page whenever the user
@@ -230,6 +237,11 @@ private fun FbWebViewScreen(
     // icon in Settings — same shape as the two effects above.
     LaunchedEffect(hiddenTabs) {
         webViewRef?.evaluateJavascript(REFRESH_TABS_JS, null)
+    }
+
+    // Re-applies the return-to-top button's on/off preference the same way.
+    LaunchedEffect(showScrollTopButton) {
+        webViewRef?.evaluateJavascript(REFRESH_SCROLL_TOP_JS, null)
     }
 
     // Without this, the system back gesture has nothing registered to intercept it, so

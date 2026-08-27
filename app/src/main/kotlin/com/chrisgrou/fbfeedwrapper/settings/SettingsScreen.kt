@@ -10,6 +10,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.CloudSync
@@ -49,7 +50,10 @@ import com.chrisgrou.fbfeedwrapper.update.UpdateViewModel
  * is organized here instead of scattered as separate icons over the feed. The
  * allow-list itself lives on its own screen (AllowedSourcesScreen) rather than being
  * inlined here, since it can grow arbitrarily long and isn't a fixed-size setting like
- * the rows above it.
+ * the rows above it. Anything beyond the core filtering feature — hide-reactions,
+ * hide-suggested, the top-bar icon picker, the return-to-top button — lives under its
+ * own "Βελτιώσεις" (Enhancements) screen instead of cluttering this one directly, so
+ * new optional extras have one obvious place to land as they're added.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -58,15 +62,12 @@ fun SettingsScreen(
     onOpenSync: () -> Unit,
     onOpenAllowedSources: () -> Unit,
     onOpenDebug: () -> Unit,
-    onOpenTabIcons: () -> Unit,
-    displayPreferences: FeedDisplayPreferences,
+    onOpenEnhancements: () -> Unit,
     settingsViewModel: SettingsViewModel = viewModel(),
     updateViewModel: UpdateViewModel = viewModel(),
 ) {
     val allowedPages by settingsViewModel.allowedPages.collectAsState()
     val updateState by updateViewModel.state.collectAsState()
-    val hideReactions by displayPreferences.hideReactions.collectAsState()
-    val hideSuggested by displayPreferences.hideSuggested.collectAsState()
 
     // Without this, the system back gesture has nothing registered to intercept it on
     // this screen and falls through to the default (exit the app) instead of stepping
@@ -111,6 +112,60 @@ fun SettingsScreen(
                     modifier = Modifier.fillMaxWidth().clickable(onClick = onOpenAllowedSources),
                 )
                 ListItem(
+                    headlineContent = { Text("Βελτιώσεις") },
+                    supportingContent = { Text("Extra features: εμφάνιση/απόκρυψη στοιχείων της οθόνης") },
+                    leadingContent = { Icon(Icons.Filled.AutoAwesome, contentDescription = null) },
+                    trailingContent = { Icon(Icons.Filled.ChevronRight, contentDescription = null) },
+                    modifier = Modifier.fillMaxWidth().clickable(onClick = onOpenEnhancements),
+                )
+                ListItem(
+                    headlineContent = { Text("Debug") },
+                    supportingContent = { Text("Toggles δοκιμής, στατιστικά φίλτρου, αποστολή dump") },
+                    leadingContent = { Icon(Icons.Filled.BugReport, contentDescription = null) },
+                    trailingContent = { Icon(Icons.Filled.ChevronRight, contentDescription = null) },
+                    modifier = Modifier.fillMaxWidth().clickable(onClick = onOpenDebug),
+                )
+            }
+        }
+    }
+
+    UpdateDialogHost(updateViewModel)
+}
+
+/**
+ * Every optional, non-core-filtering extra lands here: hide-reactions, hide-suggested,
+ * the top-bar icon picker (its own sub-screen, since it lists a dynamic, discovered
+ * set of icons rather than being a fixed on/off row), and the floating return-to-top
+ * button.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun EnhancementsScreen(
+    onBack: () -> Unit,
+    onOpenTabIcons: () -> Unit,
+    displayPreferences: FeedDisplayPreferences,
+) {
+    val hideReactions by displayPreferences.hideReactions.collectAsState()
+    val hideSuggested by displayPreferences.hideSuggested.collectAsState()
+    val showScrollTopButton by displayPreferences.showScrollTopButton.collectAsState()
+
+    BackHandler(onBack = onBack)
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Βελτιώσεις") },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.Filled.ArrowBack, contentDescription = "Πίσω")
+                    }
+                },
+            )
+        },
+    ) { padding ->
+        LazyColumn(Modifier.fillMaxSize().padding(padding)) {
+            item {
+                ListItem(
                     headlineContent = { Text("Εικονίδια πάνω μπάρας") },
                     supportingContent = { Text("Επιλογή ποια εικονίδια της μπάρας του Facebook εμφανίζονται") },
                     leadingContent = { Icon(Icons.Filled.Tab, contentDescription = null) },
@@ -140,17 +195,19 @@ fun SettingsScreen(
                     modifier = Modifier.fillMaxWidth(),
                 )
                 ListItem(
-                    headlineContent = { Text("Debug") },
-                    supportingContent = { Text("Toggles δοκιμής, στατιστικά φίλτρου, αποστολή dump") },
-                    leadingContent = { Icon(Icons.Filled.BugReport, contentDescription = null) },
-                    trailingContent = { Icon(Icons.Filled.ChevronRight, contentDescription = null) },
-                    modifier = Modifier.fillMaxWidth().clickable(onClick = onOpenDebug),
+                    headlineContent = { Text("Κουμπί επιστροφής στην κορυφή") },
+                    supportingContent = { Text("Ημιδιάφανο κουμπί κάτω δεξιά στο feed, μετά από λίγο scroll") },
+                    trailingContent = {
+                        Switch(
+                            checked = showScrollTopButton,
+                            onCheckedChange = displayPreferences::setShowScrollTopButton,
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth(),
                 )
             }
         }
     }
-
-    UpdateDialogHost(updateViewModel)
 }
 
 /**
