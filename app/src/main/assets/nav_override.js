@@ -1,18 +1,23 @@
-// Replaces Facebook's own Marketplace tab, in its always-present top tab bar, with a
-// Settings entry point (Feature: nav override). Facebook's tab bar survives every
-// in-page navigation Facebook itself does (pull-to-refresh included, unlike our own
-// canGoBack-based floating icon, which pull-to-refresh permanently hides — see
-// MainActivity), so anchoring Settings there instead is the reliable fix.
+// Puts a Settings entry point where Facebook's own Marketplace tab sits, in its
+// always-present top tab bar (Feature: nav override). Facebook's tab bar survives
+// every in-page navigation Facebook itself does — pull-to-refresh included, unlike
+// our own old canGoBack-based floating icon, which pull-to-refresh permanently hid
+// (see MainActivity) — so anchoring Settings there instead is the reliable fix.
+//
+// Earlier versions mutated the Marketplace tab's own DOM (replaceWith on its icon,
+// overwriting a leaf's textContent) to relabel it in place. That tab is inside
+// Facebook's own React tree, and on-device testing showed the *entire* tab bar (all
+// six tabs, not just Marketplace) started disappearing after a pull-to-refresh once
+// that mutation was in place — consistent with React's reconciler choking on a
+// removeChild/replaceChild it didn't expect on its next re-render of that subtree and
+// dropping the whole thing rather than just our change. So this version never writes
+// to Facebook's DOM at all: it paints an independent, opaque button of our own on top
+// of the tab (same position/size, covering its icon), and keeps that position synced
+// to the tab's real layout instead.
 (function () {
   if (window.__ffwNavInstalled) return;
   window.__ffwNavInstalled = true;
 
-  var GEAR = '⚙';
-
-  // A real Material "settings" gear glyph, drawn with currentColor so it inherits
-  // whatever color the tab bar's other (active/inactive) icons use — the Unicode ⚙
-  // character alone rendered as a thin, mismatched glyph next to Facebook's filled
-  // icon set, which is why this is a full replacement rather than a text swap.
   var GEAR_SVG_PATH =
     'M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.04-.7-1.63-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.44.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.63.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.04.7 1.63.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.63-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z';
 
@@ -38,87 +43,93 @@
     return null;
   }
 
-  function relabel(tab) {
-    if (tab.__ffwRelabelled) return;
-    tab.__ffwRelabelled = true;
-    tab.setAttribute('aria-label', 'Ρυθμίσεις');
+  var overlay = null;
+  var trackedTab = null;
 
-    // The icon is rendered one of a few ways depending on Facebook's build: an inline
-    // <svg>, an <img> (sprite/data-uri), or a leaf element using a private icon font
-    // via mask-image/background-image/a mapped codepoint. Handle the SVG/img cases by
-    // swapping in a real gear icon of our own; fall back to a text glyph otherwise.
-    var iconNode = tab.querySelector('svg, img');
-    if (iconNode) {
-      iconNode.replaceWith(gearSvg());
-    } else {
-      // An on-device capture found the real markup: the icon glyph itself sits in a
-      // `.native-text` element (an MComponent "ServerTextArea"), same as the tab's
-      // notification-count badge does — but the badge's copy carries an extra
-      // `ref-key` class ours doesn't. Picking "the deepest leaf" without that
-      // distinction landed on the (usually empty/hidden) badge span instead of the
-      // actually-visible icon glyph, leaving the real icon untouched.
-      var candidates = tab.querySelectorAll('.native-text');
-      var target = null;
-      for (var i = 0; i < candidates.length; i++) {
-        if (!candidates[i].classList.contains('ref-key')) {
-          target = candidates[i];
-          break;
-        }
-      }
-
-      // Fall back to the old "deepest leaf anywhere in the tab" heuristic if that
-      // more specific markup isn't present (a future Facebook build, a differently
-      // laid out tab) rather than doing nothing.
-      if (!target) {
-        (function () {
-          function deepestLeaf(el) {
-            var kids = el.children;
-            if (!kids || kids.length === 0) return el;
-            var best = el;
-            for (var i = 0; i < kids.length; i++) {
-              var candidate = deepestLeaf(kids[i]);
-              if (candidate !== el) best = candidate;
-            }
-            return best;
-          }
-          target = deepestLeaf(tab);
-        })();
-      }
-
-      var leaf = target.querySelector('span') || target;
-      leaf.style.backgroundImage = 'none';
-      leaf.style.maskImage = 'none';
-      leaf.style.webkitMaskImage = 'none';
-      leaf.textContent = GEAR;
-      // Reset the font so the private icon font doesn't remap this Unicode codepoint
-      // to an unrelated glyph from its own private-use-area mapping.
-      leaf.style.fontFamily = 'sans-serif';
-      leaf.style.fontSize = '20px';
-      leaf.style.display = 'flex';
-      leaf.style.alignItems = 'center';
-      leaf.style.justifyContent = 'center';
-    }
-
-    // Capture phase + stopImmediatePropagation so this runs and wins before any of
-    // Facebook's own listeners on the tab (or its ancestors) navigate to Marketplace.
-    tab.addEventListener('click', function (e) {
+  function ensureOverlay() {
+    if (overlay) return overlay;
+    overlay = document.createElement('div');
+    overlay.id = '__ffwSettingsOverlay';
+    overlay.setAttribute('role', 'button');
+    overlay.setAttribute('aria-label', 'Ρυθμίσεις');
+    overlay.style.position = 'fixed';
+    overlay.style.display = 'flex';
+    overlay.style.alignItems = 'center';
+    overlay.style.justifyContent = 'center';
+    overlay.style.zIndex = '999999';
+    overlay.style.color = '#ffffff';
+    overlay.style.background = 'var(--ffw-nav-bg, #242526)';
+    overlay.appendChild(gearSvg());
+    overlay.addEventListener('click', function (e) {
       e.preventDefault();
-      e.stopImmediatePropagation();
+      e.stopPropagation();
       window.NativeNav && window.NativeNav.requestOpenSettings();
-    }, true);
+    });
+    document.body.appendChild(overlay);
+    return overlay;
   }
 
-  function apply() {
-    var tab = findMarketplaceTab();
-    if (tab) relabel(tab);
+  // Facebook's own background behind the tab bar isn't a single fixed color (theme,
+  // dark/light mode), so read it off a live ancestor rather than hardcoding it —
+  // otherwise the overlay would sit on top as a visibly mismatched patch instead of
+  // blending in like a real tab.
+  function backgroundBehind(tab) {
+    var node = tab.parentElement;
+    while (node && node !== document.body) {
+      var bg = getComputedStyle(node).backgroundColor;
+      if (bg && bg !== 'rgba(0, 0, 0, 0)' && bg !== 'transparent') return bg;
+      node = node.parentElement;
+    }
+    return '#242526';
   }
 
-  apply();
+  // Mirrors the tab's own position/size/visibility onto the overlay every time this
+  // runs, rather than once — the tab bar can reflow (rotation, keyboard, Facebook's
+  // own re-renders) and, per the bug this replaced, can even vanish outright after a
+  // pull-to-refresh. When that happens the tab's rect collapses to nothing, so hiding
+  // the overlay in that case keeps our button from floating in a stale position over
+  // content that's no longer a tab bar.
+  function sync() {
+    var tab = findMarketplaceTab() || trackedTab;
+    if (!tab || !document.body.contains(tab)) {
+      if (overlay) overlay.style.display = 'none';
+      trackedTab = null;
+      return;
+    }
+    trackedTab = tab;
+    var rect = tab.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) {
+      if (overlay) overlay.style.display = 'none';
+      return;
+    }
+    var el = ensureOverlay();
+    el.style.left = rect.left + 'px';
+    el.style.top = rect.top + 'px';
+    el.style.width = rect.width + 'px';
+    el.style.height = rect.height + 'px';
+    el.style.background = backgroundBehind(tab);
+    el.style.display = 'flex';
+  }
 
-  // The tab bar can re-render (e.g. after Facebook's own pull-to-refresh navigation),
-  // dropping our relabelling — watch for that and reapply.
+  sync();
+
+  // capture:true so this also sees scrolling on an internal scroller, not just the
+  // window itself (scroll doesn't bubble, but a capturing listener still sees it on
+  // the way down to the real target).
+  window.addEventListener('scroll', sync, { passive: true, capture: true });
+  window.addEventListener('resize', sync);
+
+  // The tab bar re-rendering, or (per the bug above) disappearing/reappearing after a
+  // pull-to-refresh, needs a resync — this MutationObserver is read-only (it never
+  // writes to Facebook's DOM), so it carries none of the reconciler risk the old
+  // in-place mutation did.
+  var syncTimer = null;
   var observer = new MutationObserver(function () {
-    apply();
+    if (syncTimer) return;
+    syncTimer = setTimeout(function () {
+      syncTimer = null;
+      sync();
+    }, 150);
   });
-  observer.observe(document.body, { childList: true, subtree: true });
+  observer.observe(document.body, { childList: true, subtree: true, attributes: true });
 })();
