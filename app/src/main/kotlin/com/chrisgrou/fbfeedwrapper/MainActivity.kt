@@ -130,12 +130,6 @@ private fun FbWebViewScreen(
     val scrollBridge = remember { ScrollPositionBridge(context) }
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
     var canGoBack by remember { mutableStateOf(false) }
-    // Gates the floating Settings icon. Deliberately based on the URL, not
-    // canGoBack(): an earlier version used canGoBack, and Facebook's own
-    // pull-to-refresh triggers an internal navigation that flips canGoBack() to true
-    // and never flips it back — permanently hiding the icon even back on the base
-    // feed. The URL doesn't have that failure mode.
-    var isBaseFeed by remember { mutableStateOf(true) }
     val allowedPages by settingsViewModel.allowedPages.collectAsState()
     val filterStats by filterBridge.stats.collectAsState()
 
@@ -186,7 +180,6 @@ private fun FbWebViewScreen(
                     addJavascriptInterface(scrollBridge, "NativeScroll")
                     webViewClient = FbWebViewClient(onHistoryChanged = { view ->
                         canGoBack = view.canGoBack()
-                        isBaseFeed = isFeedUrl(view.url)
                     })
 
                     onWebViewCreated(this)
@@ -201,18 +194,26 @@ private fun FbWebViewScreen(
             },
         )
 
-        // A floating icon again, not anchored to Facebook's own Marketplace tab: that
-        // approach (nav_override.js, since removed) turned out to depend on Facebook's
-        // own scroll-triggered show/hide behavior for its top tab bar — on-device
-        // testing found that once scrolled away, the real tab bar (and our overlay
-        // with it) sometimes never came back on scroll-up, unlike the rest of that
-        // header. That's Facebook's own client behavior, not something fixable from
-        // outside it. Gated on isBaseFeed (the URL), not canGoBack: canGoBack is what
-        // the very first version of this icon used, and Facebook's own pull-to-refresh
-        // triggers an internal navigation that flips canGoBack() to true and never
-        // flips it back — permanently hiding the icon even back on the base feed. The
-        // URL doesn't have that failure mode.
-        if (isBaseFeed) {
+        // Only shown at the top level of the feed, not while the user has navigated
+        // into a photo/video/post/comments view: those have their own close, share,
+        // and reaction controls at every edge of the screen (confirmed by an on-device
+        // screenshot — our top-right icons sat directly on the photo viewer's own
+        // controls there), and there is no corner that's safe across every such view.
+        // canGoBack (see the BackHandler wiring) is exactly "have we navigated away
+        // from the feed", so it doubles as the signal for this.
+        //
+        // This — a floating icon gated on canGoBack — is deliberately back to the
+        // original design: anchoring Settings to Facebook's own Marketplace tab
+        // (nav_override.js, since removed) went through three different approaches,
+        // each surfacing a new failure mode (a mutation that broke Facebook's own
+        // React reconciler on refresh; an overlay that depended on Facebook's own
+        // scroll-triggered show/hide behavior for its top tab bar, which sometimes
+        // never came back). That's Facebook's own client behavior to chase, not
+        // something reliably fixable from outside it — this known-working baseline is
+        // worth more than another attempt.
+        if (!canGoBack) {
+            // Only the settings icon on the front screen — updating, syncing, and
+            // editing the allow-list all live inside Settings now.
             Row(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
@@ -225,46 +226,35 @@ private fun FbWebViewScreen(
                         tint = MaterialTheme.colorScheme.primary,
                     )
                 }
-            }
-        }
-
-        // Debug-only developer tool, not a user-facing option. Unlike the Settings
-        // icon it isn't gated on isBaseFeed — it's needed on a post/comments view too
-        // (that's exactly where past bugs have shown up) — it risks sitting on top of
-        // a photo viewer's own controls there, an acceptable tradeoff for a debug-only
-        // build tool.
-        if (BuildConfig.DEBUG) {
-            Row(
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(top = 56.dp, end = 8.dp),
-            ) {
-                IconButton(onClick = {
-                    val web = webViewRef ?: return@IconButton
-                    web.evaluateJavascript(DUMP_FILTER_REPORT_JS) { reportResult ->
-                        val filterReport = runCatching { JSONTokener(reportResult).nextValue() as String }
-                            .getOrNull().orEmpty()
-                        web.evaluateJavascript(DUMP_VIEWPORT_HTML_JS) { htmlResult ->
-                            val html = runCatching { JSONTokener(htmlResult).nextValue() as String }
+                // Debug-only developer tool, not a user-facing option: it needs the
+                // live feed WebView, which only exists on this screen, so it stays
+                // here rather than moving into Settings with everything else.
+                if (BuildConfig.DEBUG) {
+                    IconButton(onClick = {
+                        val web = webViewRef ?: return@IconButton
+                        web.evaluateJavascript(DUMP_FILTER_REPORT_JS) { reportResult ->
+                            val report = runCatching { JSONTokener(reportResult).nextValue() as String }
                                 .getOrNull().orEmpty()
-                            if (filterReport.isBlank() && html.isBlank()) {
-                                Toast.makeText(context, "Δεν βρέθηκε περιεχόμενο", Toast.LENGTH_SHORT).show()
-                                return@evaluateJavascript
+                            web.evaluateJavascript(DUMP_VIEWPORT_HTML_JS) { htmlResult ->
+                                val html = runCatching { JSONTokener(htmlResult).nextValue() as String }
+                                    .getOrNull().orEmpty()
+                                if (report.isBlank() && html.isBlank()) {
+                                    Toast.makeText(context, "Δεν βρέθηκε περιεχόμενο", Toast.LENGTH_SHORT).show()
+                                    return@evaluateJavascript
+                                }
+                                shareHtmlDump(context, report, html)
                             }
-                            shareHtmlDump(context, filterReport, html)
                         }
+                    }) {
+                        Icon(
+                            imageVector = Icons.Filled.ContentCopy,
+                            contentDescription = "Debug: αποστολή ορατού HTML",
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
                     }
-                }) {
-                    Icon(
-                        imageVector = Icons.Filled.ContentCopy,
-                        contentDescription = "Debug: αποστολή ορατού HTML",
-                        tint = MaterialTheme.colorScheme.primary,
-                    )
                 }
             }
-        }
 
-        if (!canGoBack) {
             // Debug-only: live filter counts, since console.log (see feed_filter.js)
             // isn't visible without a desktop chrome://inspect connection.
             if (BuildConfig.DEBUG) {

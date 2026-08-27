@@ -11,18 +11,6 @@ import android.webkit.WebViewClient
 private val INJECTED_ASSETS = listOf("feed_filter.js", "scroll_position.js")
 
 /**
- * Whether a URL is the main feed itself, as opposed to a post, group, profile, photo
- * viewer, or anything else the user navigated into. Mirrors feed_filter.js's own
- * isFeedPage() — both need the exact same notion of "the base feed" (there: to avoid
- * scanning a post's own comments as if they were feed rows; here: to gate the
- * floating Settings icon so it only ever shows on the base feed).
- */
-fun isFeedUrl(url: String?): Boolean {
-    val path = url?.let(Uri::parse)?.path.orEmpty()
-    return path == "/" || path.isEmpty() || path.startsWith("/home.php")
-}
-
-/**
  * Injects the feed-filtering (Feature 1) and scroll-position (Feature 2) scripts
  * after every page load, keeps facebook.com navigation inside the WebView, and
  * routes everything else — an article link, a YouTube video, a shared website — out
