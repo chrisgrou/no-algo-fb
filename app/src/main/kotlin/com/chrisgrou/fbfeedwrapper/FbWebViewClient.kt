@@ -14,13 +14,14 @@ private val INJECTED_ASSETS = listOf(
     "nav_bar_watchdog.js",
     "nav_override.js",
     "feed_display.js",
+    "scroll_to_top.js",
 )
 
 /**
  * Injects the feed-filtering (Feature 1), scroll-position (Feature 2), nav-bar
- * watchdog, nav-bar override, and feed-display scripts after every page load, keeps
- * facebook.com navigation inside the WebView, and routes everything else — an
- * article link, a YouTube video, a shared website — out to the user's own
+ * watchdog, nav-bar override, feed-display, and scroll-to-top scripts after every
+ * page load, keeps facebook.com navigation inside the WebView, and routes everything
+ * else — an article link, a YouTube video, a shared website — out to the user's own
  * browser/app instead.
  */
 class FbWebViewClient(
