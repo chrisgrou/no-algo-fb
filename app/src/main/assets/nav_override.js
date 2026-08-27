@@ -103,7 +103,13 @@
     el.style.left = rect.left + 'px';
     el.style.top = rect.top + 'px';
     el.style.width = rect.width + 'px';
-    el.style.height = rect.height + 'px';
+    // -2px, not the full rect.height: an on-device capture found each tab carries a
+    // thin (2px) divider strip of its own — a real child element, its own exact
+    // color — that visually lines up with its neighbors to look like one continuous
+    // bar under the whole row. Covering it with our own approximated background
+    // color broke that line right under this tab. Leaving the bottom 2px of the real
+    // tab uncovered lets its own genuine divider strip keep showing through instead.
+    el.style.height = Math.max(0, rect.height - 2) + 'px';
     el.style.background = backgroundBehind(tab);
     el.style.display = 'flex';
   }
