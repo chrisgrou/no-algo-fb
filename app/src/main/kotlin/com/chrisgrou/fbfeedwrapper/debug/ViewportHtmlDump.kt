@@ -89,11 +89,25 @@ const val DUMP_FILTER_REPORT_JS = """
 const val DUMP_NAV_REPORT_JS = """
 (function () {
   var lines = ['===== NAV BAR DIAGNOSTIC ====='];
+  var tablists = document.querySelectorAll('[role="tablist"]');
+  lines.push('[role="tablist"] COUNT: ' + tablists.length);
+  for (var k = 0; k < tablists.length; k++) {
+    var tl = tablists[k];
+    var tlRect = tl.getBoundingClientRect();
+    var tlStyle = getComputedStyle(tl);
+    lines.push('  [' + k + '] rect: top=' + Math.round(tlRect.top) + ' w=' + Math.round(tlRect.width) +
+      ' h=' + Math.round(tlRect.height) + ' display=' + tlStyle.display +
+      ' visibility=' + tlStyle.visibility + ' opacity=' + tlStyle.opacity);
+    lines.push('  inline style="' + (tl.getAttribute('style') || '') + '"');
+  }
+  lines.push('');
   var tabs = document.querySelectorAll('[role="tab"]');
   lines.push('[role="tab"] COUNT: ' + tabs.length);
   for (var i = 0; i < tabs.length; i++) {
     var t = tabs[i];
-    lines.push('  [' + i + '] aria-label="' + (t.getAttribute('aria-label') || '') + '" tag=' + t.tagName);
+    var tRect = t.getBoundingClientRect();
+    lines.push('  [' + i + '] aria-label="' + (t.getAttribute('aria-label') || '') + '" tag=' + t.tagName +
+      ' rect: top=' + Math.round(tRect.top) + ' w=' + Math.round(tRect.width) + ' h=' + Math.round(tRect.height));
     lines.push('  outerHTML: ' + t.outerHTML.substring(0, 3000));
     lines.push('');
   }

@@ -123,6 +123,14 @@
   // pull-to-refresh, needs a resync — this MutationObserver is read-only (it never
   // writes to Facebook's DOM), so it carries none of the reconciler risk the old
   // in-place mutation did.
+  //
+  // childList only, not attributes: Facebook's initial feed load streams in constant
+  // inline-style updates across a huge subtree (layout, animation), so an
+  // attributes:true observer here fired on nearly every one of them — on-device
+  // testing after adding it showed the feed staying blank noticeably longer on a cold
+  // launch. Nothing this script needs to react to shows up as an attribute-only
+  // change; the tab bar appearing, moving, or being removed always shows up as a
+  // childList change somewhere on the way, and scroll/resize already cover reflow.
   var syncTimer = null;
   var observer = new MutationObserver(function () {
     if (syncTimer) return;
@@ -131,5 +139,5 @@
       sync();
     }, 150);
   });
-  observer.observe(document.body, { childList: true, subtree: true, attributes: true });
+  observer.observe(document.body, { childList: true, subtree: true });
 })();
