@@ -41,6 +41,7 @@ import com.chrisgrou.fbfeedwrapper.debug.DUMP_NAV_REPORT_JS
 import com.chrisgrou.fbfeedwrapper.debug.DUMP_VIEWPORT_HTML_JS
 import com.chrisgrou.fbfeedwrapper.debug.shareHtmlDump
 import com.chrisgrou.fbfeedwrapper.filter.FeedFilterBridge
+import com.chrisgrou.fbfeedwrapper.nav.NavigationBridge
 import com.chrisgrou.fbfeedwrapper.scroll.ScrollPositionBridge
 import com.chrisgrou.fbfeedwrapper.settings.AllowedSourcesScreen
 import com.chrisgrou.fbfeedwrapper.settings.DebugToggles
@@ -136,6 +137,7 @@ private fun FbWebViewScreen(
     val context = LocalContext.current
     val filterBridge = remember { FeedFilterBridge() }
     val scrollBridge = remember { ScrollPositionBridge(context) }
+    val navBridge = remember { NavigationBridge(onOpenSettings = onOpenSettings) }
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
     var canGoBack by remember { mutableStateOf(false) }
     // Gates the floating Settings icon. Not canGoBack: this client evidently pushes
@@ -196,6 +198,7 @@ private fun FbWebViewScreen(
                     addJavascriptInterface(filterBridge, "NativeFilter")
                     addJavascriptInterface(scrollBridge, "NativeScroll")
                     addJavascriptInterface(debugToggles, "NativeFlags")
+                    addJavascriptInterface(navBridge, "NativeNav")
                     webViewClient = FbWebViewClient(onHistoryChanged = { view ->
                         canGoBack = view.canGoBack()
                     })
