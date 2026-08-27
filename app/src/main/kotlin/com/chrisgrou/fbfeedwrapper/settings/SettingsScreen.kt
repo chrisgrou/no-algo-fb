@@ -10,6 +10,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.Delete
@@ -54,14 +55,12 @@ fun SettingsScreen(
     onBack: () -> Unit,
     onOpenSync: () -> Unit,
     onOpenAllowedSources: () -> Unit,
-    debugToggles: DebugToggles,
+    onOpenDebug: () -> Unit,
     settingsViewModel: SettingsViewModel = viewModel(),
     updateViewModel: UpdateViewModel = viewModel(),
 ) {
     val allowedPages by settingsViewModel.allowedPages.collectAsState()
     val updateState by updateViewModel.state.collectAsState()
-    val feedScopeEnabled by debugToggles.feedScopeEnabled.collectAsState()
-    val scrollRestoreFixEnabled by debugToggles.scrollRestoreFixEnabled.collectAsState()
 
     // Without this, the system back gesture has nothing registered to intercept it on
     // this screen and falls through to the default (exit the app) instead of stepping
@@ -105,8 +104,72 @@ fun SettingsScreen(
                     trailingContent = { Icon(Icons.Filled.ChevronRight, contentDescription = null) },
                     modifier = Modifier.fillMaxWidth().clickable(onClick = onOpenAllowedSources),
                 )
+                ListItem(
+                    headlineContent = { Text("Debug") },
+                    supportingContent = { Text("Toggles δοκιμής, στατιστικά φίλτρου, αποστολή dump") },
+                    leadingContent = { Icon(Icons.Filled.BugReport, contentDescription = null) },
+                    trailingContent = { Icon(Icons.Filled.ChevronRight, contentDescription = null) },
+                    modifier = Modifier.fillMaxWidth().clickable(onClick = onOpenDebug),
+                )
+            }
+        }
+    }
+
+    UpdateDialogHost(updateViewModel)
+}
+
+/**
+ * Debug-only tools, split out from the main Settings hub so they don't clutter it for
+ * everyday use: kill switches for two fixes (see DebugToggles) kept around so either
+ * can be ruled in or out against a real-device bug by testing instead of guessing,
+ * whether to show the on-screen filter-stats banner, and the button that captures and
+ * shares a feed debug dump — previously a floating icon over the feed itself.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun DebugScreen(
+    onBack: () -> Unit,
+    onDebugDump: () -> Unit,
+    debugToggles: DebugToggles,
+) {
+    val feedScopeEnabled by debugToggles.feedScopeEnabled.collectAsState()
+    val scrollRestoreFixEnabled by debugToggles.scrollRestoreFixEnabled.collectAsState()
+    val statsBannerEnabled by debugToggles.statsBannerEnabled.collectAsState()
+
+    BackHandler(onBack = onBack)
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Debug") },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.Filled.ArrowBack, contentDescription = "Πίσω")
+                    }
+                },
+            )
+        },
+    ) { padding ->
+        LazyColumn(Modifier.fillMaxSize().padding(padding)) {
+            item {
+                ListItem(
+                    headlineContent = { Text("Αποστολή feed debug dump") },
+                    supportingContent = { Text("Στατιστικά φίλτρου, μπάρα, και ορατό HTML") },
+                    modifier = Modifier.fillMaxWidth().clickable(onClick = onDebugDump),
+                )
+                ListItem(
+                    headlineContent = { Text("Στατιστικά φίλτρου στην οθόνη") },
+                    supportingContent = { Text("posts/src/hid/ok/leak/gapfix/allow, κάτω αριστερά στο feed") },
+                    trailingContent = {
+                        Switch(
+                            checked = statsBannerEnabled,
+                            onCheckedChange = debugToggles::setStatsBannerEnabled,
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                )
                 Text(
-                    "Προσωρινά toggles — για δοκιμή",
+                    "Toggles δοκιμής",
                     style = MaterialTheme.typography.labelMedium,
                     modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 4.dp),
                 )
@@ -135,8 +198,6 @@ fun SettingsScreen(
             }
         }
     }
-
-    UpdateDialogHost(updateViewModel)
 }
 
 /**

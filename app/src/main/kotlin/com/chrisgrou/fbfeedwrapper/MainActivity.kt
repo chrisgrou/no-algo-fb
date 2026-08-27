@@ -12,15 +12,8 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -44,6 +37,7 @@ import com.chrisgrou.fbfeedwrapper.filter.FeedFilterBridge
 import com.chrisgrou.fbfeedwrapper.nav.NavigationBridge
 import com.chrisgrou.fbfeedwrapper.scroll.ScrollPositionBridge
 import com.chrisgrou.fbfeedwrapper.settings.AllowedSourcesScreen
+import com.chrisgrou.fbfeedwrapper.settings.DebugScreen
 import com.chrisgrou.fbfeedwrapper.settings.DebugToggles
 import com.chrisgrou.fbfeedwrapper.settings.SettingsScreen
 import com.chrisgrou.fbfeedwrapper.settings.SettingsViewModel
@@ -68,6 +62,7 @@ class MainActivity : ComponentActivity() {
             App(
                 restoredState = restoredState,
                 onWebViewCreated = { webView = it },
+                onDebugDump = ::captureDebugDump,
             )
         }
     }
@@ -78,14 +73,44 @@ class MainActivity : ComponentActivity() {
         webView?.saveState(state)
         outState.putBundle(WEBVIEW_STATE_KEY, state)
     }
+
+    // Held here (Activity-scoped), not in FbWebViewScreen's own composable state, so
+    // it's still callable from the Debug menu inside Settings — a different screen,
+    // where FbWebViewScreen (and any local WebView reference it held) isn't part of
+    // the composition. Compose doesn't destroy the underlying WebView just because
+    // AndroidView left composition (nothing here calls WebView.destroy()), so this
+    // reference and evaluateJavascript on it both stay valid across screens — the
+    // same assumption onSaveInstanceState above already relies on.
+    private fun captureDebugDump() {
+        val web = webView ?: return
+        web.evaluateJavascript(DUMP_FILTER_REPORT_JS) { reportResult ->
+            val filterReport = runCatching { JSONTokener(reportResult).nextValue() as String }
+                .getOrNull().orEmpty()
+            web.evaluateJavascript(DUMP_NAV_REPORT_JS) { navResult ->
+                val navReport = runCatching { JSONTokener(navResult).nextValue() as String }
+                    .getOrNull().orEmpty()
+                val report = listOf(filterReport, navReport).filter { it.isNotBlank() }.joinToString("\n\n")
+                web.evaluateJavascript(DUMP_VIEWPORT_HTML_JS) { htmlResult ->
+                    val html = runCatching { JSONTokener(htmlResult).nextValue() as String }
+                        .getOrNull().orEmpty()
+                    if (report.isBlank() && html.isBlank()) {
+                        Toast.makeText(this, "Δεν βρέθηκε περιεχόμενο", Toast.LENGTH_SHORT).show()
+                        return@evaluateJavascript
+                    }
+                    shareHtmlDump(this, report, html)
+                }
+            }
+        }
+    }
 }
 
-private enum class Screen { Feed, Settings, Sync, AllowedSources }
+private enum class Screen { Feed, Settings, Sync, AllowedSources, Debug }
 
 @Composable
 private fun App(
     restoredState: Bundle?,
     onWebViewCreated: (WebView) -> Unit,
+    onDebugDump: () -> Unit,
 ) {
     var screen by remember { mutableStateOf(Screen.Feed) }
     // Activity-scoped, so results (list edits, sync imports, an update check) land
@@ -107,9 +132,9 @@ private fun App(
             onBack = { screen = Screen.Feed },
             onOpenSync = { screen = Screen.Sync },
             onOpenAllowedSources = { screen = Screen.AllowedSources },
+            onOpenDebug = { screen = Screen.Debug },
             settingsViewModel = settingsViewModel,
             updateViewModel = updateViewModel,
-            debugToggles = debugToggles,
         )
         Screen.Sync -> SourceSyncScreen(
             onCancel = { screen = Screen.Settings },
@@ -121,6 +146,11 @@ private fun App(
         Screen.AllowedSources -> AllowedSourcesScreen(
             onBack = { screen = Screen.Settings },
             settingsViewModel = settingsViewModel,
+        )
+        Screen.Debug -> DebugScreen(
+            onBack = { screen = Screen.Settings },
+            onDebugDump = onDebugDump,
+            debugToggles = debugToggles,
         )
     }
 }
@@ -140,17 +170,18 @@ private fun FbWebViewScreen(
     val navBridge = remember { NavigationBridge(onOpenSettings = onOpenSettings) }
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
     var canGoBack by remember { mutableStateOf(false) }
-    // Gates the floating Settings icon. Not canGoBack: this client evidently pushes
+    // Gates the debug stats banner below. Not canGoBack: this client evidently pushes
     // "screens" (opening a post, its Replies, ...) via its own internal mechanism
     // rather than always through the browser's URL/history APIs — an on-device
     // capture showed WebView.canGoBack() getting stuck true after returning from a
-    // post, permanently hiding the icon. document.title changes reliably per screen
-    // ("Facebook" on the main feed, "Replies"/a post's own title elsewhere — see
-    // feed_filter.js's isFeedPage(), which hit the same problem with the URL and was
-    // fixed the same way), so track that instead via WebChromeClient.onReceivedTitle.
+    // post. document.title changes reliably per screen ("Facebook" on the main feed,
+    // "Replies"/a post's own title elsewhere — see feed_filter.js's isFeedPage(),
+    // which hit the same problem with the URL and was fixed the same way), so track
+    // that instead via WebChromeClient.onReceivedTitle.
     var isBaseFeed by remember { mutableStateOf(true) }
     val allowedPages by settingsViewModel.allowedPages.collectAsState()
     val filterStats by filterBridge.stats.collectAsState()
+    val statsBannerEnabled by debugToggles.statsBannerEnabled.collectAsState()
 
     // Re-applies the filter in the already-loaded page whenever the user
     // edits the allowed-pages list in Settings.
@@ -220,97 +251,29 @@ private fun FbWebViewScreen(
             },
         )
 
-        // Debug-only developer tool, not a user-facing option — unlike the Settings
-        // icon below, it's kept reachable on every screen (not just !canGoBack), since
-        // diagnosing a bug (e.g. the Replies pagination issue) often means capturing
-        // from exactly the subpage where it happens.
-        if (BuildConfig.DEBUG) {
-            Row(
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(8.dp),
-            ) {
-                IconButton(onClick = {
-                    val web = webViewRef ?: return@IconButton
-                    web.evaluateJavascript(DUMP_FILTER_REPORT_JS) { reportResult ->
-                        val filterReport = runCatching { JSONTokener(reportResult).nextValue() as String }
-                            .getOrNull().orEmpty()
-                        web.evaluateJavascript(DUMP_NAV_REPORT_JS) { navResult ->
-                            val navReport = runCatching { JSONTokener(navResult).nextValue() as String }
-                                .getOrNull().orEmpty()
-                            val report = listOf(filterReport, navReport)
-                                .filter { it.isNotBlank() }.joinToString("\n\n")
-                            web.evaluateJavascript(DUMP_VIEWPORT_HTML_JS) { htmlResult ->
-                                val html = runCatching { JSONTokener(htmlResult).nextValue() as String }
-                                    .getOrNull().orEmpty()
-                                if (report.isBlank() && html.isBlank()) {
-                                    Toast.makeText(context, "Δεν βρέθηκε περιεχόμενο", Toast.LENGTH_SHORT).show()
-                                    return@evaluateJavascript
-                                }
-                                shareHtmlDump(context, report, html)
-                            }
-                        }
-                    }
-                }) {
-                    Icon(
-                        imageVector = Icons.Filled.ContentCopy,
-                        contentDescription = "Debug: αποστολή ορατού HTML",
-                        tint = MaterialTheme.colorScheme.primary,
-                    )
-                }
-            }
-        }
-
-        // Only shown at the top level of the feed, not while the user has navigated
-        // into a photo/video/post/comments view: those have their own close, share,
-        // and reaction controls at every edge of the screen (confirmed by an on-device
-        // screenshot — our top-right icons sat directly on the photo viewer's own
-        // controls there), and there is no corner that's safe across every such view.
-        // isBaseFeed is exactly "have we navigated away from the feed", so it doubles
-        // as the signal for this.
+        // The floating Settings icon and debug-capture icon both moved into a Debug
+        // menu inside Settings (reachable via nav_override.js's overlay on Facebook's
+        // own Marketplace tab) — no more floating icons over the feed now that
+        // Settings has a reliable entry point that doesn't depend on this screen's
+        // own state.
         //
-        // This — a floating icon — is deliberately back to the original design:
-        // anchoring Settings to Facebook's own Marketplace tab (nav_override.js,
-        // since removed) went through three different approaches, each surfacing a
-        // new failure mode (a mutation that broke Facebook's own React reconciler on
-        // refresh; an overlay that depended on Facebook's own scroll-triggered
-        // show/hide behavior for its top tab bar, which sometimes never came back).
-        // That's Facebook's own client behavior to chase, not something reliably
-        // fixable from outside it — this known-working baseline is worth more than
-        // another attempt.
-        if (isBaseFeed) {
-            // Only the settings icon on the front screen — updating, syncing, and
-            // editing the allow-list all live inside Settings now.
-            Row(
+        // Debug-only: live filter counts, since console.log (see feed_filter.js)
+        // isn't visible without a desktop chrome://inspect connection. Also
+        // toggleable now (Settings → Debug), since it's a permanent on-screen
+        // overlay that isn't everyone's cup of tea to always have up.
+        if (isBaseFeed && BuildConfig.DEBUG && statsBannerEnabled) {
+            Text(
+                text = filterStats?.let {
+                    "posts=${it.rowsMatched} src=${it.authorsResolved} hid=${it.hiddenCount} " +
+                        "ok=${it.verifiedHidden} leak=${it.unresolvedVisible} gapfix=${it.gapsCollapsed} " +
+                        "allow=${allowedPages.size}"
+                } ?: "filter: no data yet",
+                color = Color.White,
                 modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(top = if (BuildConfig.DEBUG) 56.dp else 8.dp, end = 8.dp),
-            ) {
-                IconButton(onClick = onOpenSettings) {
-                    Icon(
-                        imageVector = Icons.Filled.Settings,
-                        contentDescription = "Ρυθμίσεις",
-                        tint = MaterialTheme.colorScheme.primary,
-                    )
-                }
-            }
-
-            // Debug-only: live filter counts, since console.log (see feed_filter.js)
-            // isn't visible without a desktop chrome://inspect connection.
-            if (BuildConfig.DEBUG) {
-                Text(
-                    text = filterStats?.let {
-                        "posts=${it.rowsMatched} src=${it.authorsResolved} hid=${it.hiddenCount} " +
-                            "ok=${it.verifiedHidden} leak=${it.unresolvedVisible} gapfix=${it.gapsCollapsed} " +
-                            "allow=${allowedPages.size}"
-                    } ?: "filter: no data yet",
-                    color = Color.White,
-                    modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        .background(Color.Black.copy(alpha = 0.6f))
-                        .padding(8.dp),
-                )
-            }
+                    .align(Alignment.BottomStart)
+                    .background(Color.Black.copy(alpha = 0.6f))
+                    .padding(8.dp),
+            )
         }
     }
 }
