@@ -8,13 +8,13 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
 
-private val INJECTED_ASSETS = listOf("feed_filter.js", "scroll_position.js", "nav_override.js")
+private val INJECTED_ASSETS = listOf("feed_filter.js", "scroll_position.js", "nav_override.js", "comment_sort.js")
 
 /**
- * Injects the feed-filtering (Feature 1), scroll-position (Feature 2), and nav-bar
- * override scripts after every page load, keeps facebook.com navigation inside the
- * WebView, and routes everything else — an article link, a YouTube video, a shared
- * website — out to the user's own browser/app instead.
+ * Injects the feed-filtering (Feature 1), scroll-position (Feature 2), nav-bar
+ * override, and comment-sort scripts after every page load, keeps facebook.com
+ * navigation inside the WebView, and routes everything else — an article link, a
+ * YouTube video, a shared website — out to the user's own browser/app instead.
  */
 class FbWebViewClient(
     private val onHistoryChanged: (WebView) -> Unit = {},

@@ -42,6 +42,7 @@ import com.chrisgrou.fbfeedwrapper.filter.FeedFilterBridge
 import com.chrisgrou.fbfeedwrapper.nav.NavigationBridge
 import com.chrisgrou.fbfeedwrapper.scroll.ScrollPositionBridge
 import com.chrisgrou.fbfeedwrapper.settings.AllowedSourcesScreen
+import com.chrisgrou.fbfeedwrapper.settings.CommentSortPreference
 import com.chrisgrou.fbfeedwrapper.settings.SettingsScreen
 import com.chrisgrou.fbfeedwrapper.settings.SettingsViewModel
 import com.chrisgrou.fbfeedwrapper.sync.SourceSyncScreen
@@ -89,6 +90,8 @@ private fun App(
     // wherever the app navigates back to afterwards.
     val settingsViewModel: SettingsViewModel = viewModel()
     val updateViewModel: UpdateViewModel = viewModel()
+    val context = LocalContext.current
+    val commentSortPreference = remember { CommentSortPreference(context) }
 
     when (screen) {
         Screen.Feed -> FbWebViewScreen(
@@ -96,6 +99,7 @@ private fun App(
             onWebViewCreated = onWebViewCreated,
             onOpenSettings = { screen = Screen.Settings },
             settingsViewModel = settingsViewModel,
+            commentSortPreference = commentSortPreference,
         )
         Screen.Settings -> SettingsScreen(
             onBack = { screen = Screen.Feed },
@@ -103,6 +107,7 @@ private fun App(
             onOpenAllowedSources = { screen = Screen.AllowedSources },
             settingsViewModel = settingsViewModel,
             updateViewModel = updateViewModel,
+            commentSortPreference = commentSortPreference,
         )
         Screen.Sync -> SourceSyncScreen(
             onCancel = { screen = Screen.Settings },
@@ -125,6 +130,7 @@ private fun FbWebViewScreen(
     onWebViewCreated: (WebView) -> Unit,
     onOpenSettings: () -> Unit,
     settingsViewModel: SettingsViewModel = viewModel(),
+    commentSortPreference: CommentSortPreference,
 ) {
     val context = LocalContext.current
     val filterBridge = remember { FeedFilterBridge() }
@@ -181,6 +187,7 @@ private fun FbWebViewScreen(
                     addJavascriptInterface(filterBridge, "NativeFilter")
                     addJavascriptInterface(scrollBridge, "NativeScroll")
                     addJavascriptInterface(navBridge, "NativeNav")
+                    addJavascriptInterface(commentSortPreference, "NativeCommentSort")
                     webViewClient = FbWebViewClient(onHistoryChanged = { view ->
                         canGoBack = view.canGoBack()
                     })
