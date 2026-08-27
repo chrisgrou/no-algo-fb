@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -35,11 +36,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.chrisgrou.fbfeedwrapper.debug.DUMP_FILTER_REPORT_JS
-import com.chrisgrou.fbfeedwrapper.debug.DUMP_NAV_REPORT_JS
 import com.chrisgrou.fbfeedwrapper.debug.DUMP_VIEWPORT_HTML_JS
 import com.chrisgrou.fbfeedwrapper.debug.shareHtmlDump
 import com.chrisgrou.fbfeedwrapper.filter.FeedFilterBridge
-import com.chrisgrou.fbfeedwrapper.nav.NavigationBridge
 import com.chrisgrou.fbfeedwrapper.scroll.ScrollPositionBridge
 import com.chrisgrou.fbfeedwrapper.settings.AllowedSourcesScreen
 import com.chrisgrou.fbfeedwrapper.settings.SettingsScreen
@@ -129,9 +128,14 @@ private fun FbWebViewScreen(
     val context = LocalContext.current
     val filterBridge = remember { FeedFilterBridge() }
     val scrollBridge = remember { ScrollPositionBridge(context) }
-    val navBridge = remember { NavigationBridge(onOpenSettings = onOpenSettings) }
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
     var canGoBack by remember { mutableStateOf(false) }
+    // Gates the floating Settings icon. Deliberately based on the URL, not
+    // canGoBack(): an earlier version used canGoBack, and Facebook's own
+    // pull-to-refresh triggers an internal navigation that flips canGoBack() to true
+    // and never flips it back — permanently hiding the icon even back on the base
+    // feed. The URL doesn't have that failure mode.
+    var isBaseFeed by remember { mutableStateOf(true) }
     val allowedPages by settingsViewModel.allowedPages.collectAsState()
     val filterStats by filterBridge.stats.collectAsState()
 
@@ -180,9 +184,9 @@ private fun FbWebViewScreen(
 
                     addJavascriptInterface(filterBridge, "NativeFilter")
                     addJavascriptInterface(scrollBridge, "NativeScroll")
-                    addJavascriptInterface(navBridge, "NativeNav")
                     webViewClient = FbWebViewClient(onHistoryChanged = { view ->
                         canGoBack = view.canGoBack()
+                        isBaseFeed = isFeedUrl(view.url)
                     })
 
                     onWebViewCreated(this)
@@ -197,42 +201,57 @@ private fun FbWebViewScreen(
             },
         )
 
-        // Settings is reached through Facebook's own tab bar now (its Marketplace tab,
-        // relabelled — see nav_override.js/NavigationBridge), not a floating overlay:
-        // that tab bar survives Facebook's own pull-to-refresh navigation, whereas the
-        // old canGoBack-based overlay icon didn't (pull-to-refresh flipped canGoBack
-        // and never flipped it back, permanently hiding the icon even on the base feed).
-        //
-        // The debug capture icon needs to work on a post/comments view too (that's
-        // exactly where the comment-sort and empty-gap bugs show up), so unlike the
-        // old floating icons it isn't gated on canGoBack — it risks sitting on top of
-        // a photo viewer's own controls there, but that's an acceptable tradeoff for a
-        // debug-only build tool, not something shipped to users.
-        if (BuildConfig.DEBUG) {
+        // A floating icon again, not anchored to Facebook's own Marketplace tab: that
+        // approach (nav_override.js, since removed) turned out to depend on Facebook's
+        // own scroll-triggered show/hide behavior for its top tab bar — on-device
+        // testing found that once scrolled away, the real tab bar (and our overlay
+        // with it) sometimes never came back on scroll-up, unlike the rest of that
+        // header. That's Facebook's own client behavior, not something fixable from
+        // outside it. Gated on isBaseFeed (the URL), not canGoBack: canGoBack is what
+        // the very first version of this icon used, and Facebook's own pull-to-refresh
+        // triggers an internal navigation that flips canGoBack() to true and never
+        // flips it back — permanently hiding the icon even back on the base feed. The
+        // URL doesn't have that failure mode.
+        if (isBaseFeed) {
             Row(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .padding(8.dp),
+            ) {
+                IconButton(onClick = onOpenSettings) {
+                    Icon(
+                        imageVector = Icons.Filled.Settings,
+                        contentDescription = "Ρυθμίσεις",
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
+                }
+            }
+        }
+
+        // Debug-only developer tool, not a user-facing option. Unlike the Settings
+        // icon it isn't gated on isBaseFeed — it's needed on a post/comments view too
+        // (that's exactly where past bugs have shown up) — it risks sitting on top of
+        // a photo viewer's own controls there, an acceptable tradeoff for a debug-only
+        // build tool.
+        if (BuildConfig.DEBUG) {
+            Row(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 56.dp, end = 8.dp),
             ) {
                 IconButton(onClick = {
                     val web = webViewRef ?: return@IconButton
                     web.evaluateJavascript(DUMP_FILTER_REPORT_JS) { reportResult ->
                         val filterReport = runCatching { JSONTokener(reportResult).nextValue() as String }
                             .getOrNull().orEmpty()
-                        web.evaluateJavascript(DUMP_NAV_REPORT_JS) { navResult ->
-                            val navReport = runCatching { JSONTokener(navResult).nextValue() as String }
+                        web.evaluateJavascript(DUMP_VIEWPORT_HTML_JS) { htmlResult ->
+                            val html = runCatching { JSONTokener(htmlResult).nextValue() as String }
                                 .getOrNull().orEmpty()
-                            val report = listOf(filterReport, navReport)
-                                .filter { it.isNotBlank() }.joinToString("\n\n")
-                            web.evaluateJavascript(DUMP_VIEWPORT_HTML_JS) { htmlResult ->
-                                val html = runCatching { JSONTokener(htmlResult).nextValue() as String }
-                                    .getOrNull().orEmpty()
-                                if (report.isBlank() && html.isBlank()) {
-                                    Toast.makeText(context, "Δεν βρέθηκε περιεχόμενο", Toast.LENGTH_SHORT).show()
-                                    return@evaluateJavascript
-                                }
-                                shareHtmlDump(context, report, html)
+                            if (filterReport.isBlank() && html.isBlank()) {
+                                Toast.makeText(context, "Δεν βρέθηκε περιεχόμενο", Toast.LENGTH_SHORT).show()
+                                return@evaluateJavascript
                             }
+                            shareHtmlDump(context, filterReport, html)
                         }
                     }
                 }) {

@@ -80,56 +80,6 @@ const val DUMP_FILTER_REPORT_JS = """
 })();
 """
 
-/**
- * Diagnostic for the nav-bar override (nav_override.js): dumps whatever candidate
- * elements it would consider for "the Marketplace tab" so a real-device capture shows
- * why the relabelling isn't finding/matching it, instead of guessing blind at
- * selectors again.
- */
-const val DUMP_NAV_REPORT_JS = """
-(function () {
-  var lines = ['===== NAV BAR DIAGNOSTIC ====='];
-  var tablists = document.querySelectorAll('[role="tablist"]');
-  lines.push('[role="tablist"] COUNT: ' + tablists.length);
-  for (var k = 0; k < tablists.length; k++) {
-    var tl = tablists[k];
-    var tlRect = tl.getBoundingClientRect();
-    var tlStyle = getComputedStyle(tl);
-    lines.push('  [' + k + '] rect: top=' + Math.round(tlRect.top) + ' w=' + Math.round(tlRect.width) +
-      ' h=' + Math.round(tlRect.height) + ' display=' + tlStyle.display +
-      ' visibility=' + tlStyle.visibility + ' opacity=' + tlStyle.opacity);
-    lines.push('  inline style="' + (tl.getAttribute('style') || '') + '"');
-  }
-  lines.push('');
-  var tabs = document.querySelectorAll('[role="tab"]');
-  lines.push('[role="tab"] COUNT: ' + tabs.length);
-  for (var i = 0; i < tabs.length; i++) {
-    var t = tabs[i];
-    var tRect = t.getBoundingClientRect();
-    lines.push('  [' + i + '] aria-label="' + (t.getAttribute('aria-label') || '') + '" tag=' + t.tagName +
-      ' rect: top=' + Math.round(tRect.top) + ' w=' + Math.round(tRect.width) + ' h=' + Math.round(tRect.height));
-    lines.push('  outerHTML: ' + t.outerHTML.substring(0, 3000));
-    lines.push('');
-  }
-  var mkt = [];
-  document.querySelectorAll('[aria-label]').forEach(function (el) {
-    var l = (el.getAttribute('aria-label') || '').toLowerCase();
-    if (l.indexOf('marketplace') !== -1) mkt.push(el);
-  });
-  lines.push('[aria-label*="marketplace"] COUNT: ' + mkt.length);
-  for (var j = 0; j < mkt.length; j++) {
-    lines.push('  [' + j + '] tag=' + mkt[j].tagName + ' role=' + mkt[j].getAttribute('role') +
-      ' aria-label="' + mkt[j].getAttribute('aria-label') + '"');
-    lines.push('  outerHTML: ' + mkt[j].outerHTML.substring(0, 1500));
-    lines.push('');
-  }
-  if (mkt.length === 0) {
-    lines.push('(no element anywhere on the page has an aria-label containing "marketplace")');
-  }
-  return lines.join('\n');
-})();
-"""
-
 /** Writes the debug capture to a cache file and opens the system share sheet for it, so
  *  it can be sent anywhere (email, messaging, "save to files") without the clipboard's
  *  size limits. */
