@@ -75,6 +75,18 @@
     return p === '/' || p === '' || p.indexOf('/home.php') === 0;
   }
 
+  // Temporary kill switch (Settings → toggles) for isolating whether this guard has
+  // anything to do with a separate, still-unsolved bug (Facebook's own top tab bar
+  // not reappearing on scroll-up) — see DebugToggles. Defaults to on (the fix stays
+  // active) if the bridge isn't reachable for any reason.
+  function feedScopeGuardEnabled() {
+    try {
+      return !window.NativeFlags || window.NativeFlags.getFeedScopeEnabled() !== false;
+    } catch (e) {
+      return true;
+    }
+  }
+
   function getAllowed() {
     try {
       return new Set(JSON.parse(window.NativeFilter.getAllowedAuthorsJson()));
@@ -195,7 +207,7 @@
   // decide; the rest already carry their mark from a previous pass and are skipped
   // outright, without even reading their source name.
   function applyFilter(force) {
-    if (!isFeedPage()) return;
+    if (feedScopeGuardEnabled() && !isFeedPage()) return;
     var posts = document.querySelectorAll(POST_SELECTOR);
     var considered = 0;
     var resolved = 0;
@@ -269,7 +281,7 @@
   // and, for real, collapses these posts' now-empty wrappers; that part doesn't need
   // to be instant, only the hide does.
   function quickHideNewPosts(mutations) {
-    if (!isFeedPage()) return;
+    if (feedScopeGuardEnabled() && !isFeedPage()) return;
     for (var m = 0; m < mutations.length; m++) {
       var added = mutations[m].addedNodes;
       for (var a = 0; a < added.length; a++) {

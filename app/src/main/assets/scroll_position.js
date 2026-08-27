@@ -49,7 +49,16 @@
     saved = parseFloat(window.NativeScroll.getSavedScrollY()) || 0;
   } catch (e) {}
 
-  // Reported bug: the feed stayed blank for 5-10s on launch. The previous version
+  // Temporary kill switch (Settings → toggles) for isolating whether this fix has
+  // anything to do with a separate, still-unsolved bug (Facebook's own top tab bar
+  // not reappearing on scroll-up) — see DebugToggles. Defaults to on (the fix stays
+  // active) if the bridge isn't reachable for any reason.
+  var fixEnabled = true;
+  try {
+    fixEnabled = !window.NativeFlags || window.NativeFlags.getScrollRestoreFixEnabled() !== false;
+  } catch (e) {}
+
+  // Reported bug: the feed stayed blank for 5-10s on launch. The pre-fix version
   // called setY(saved) unconditionally on every attempt, including while
   // reachable < saved (the lazy-loaded content hasn't streamed in that far yet) —
   // the browser clamps scrollTop to whatever IS currently scrollable, so that pinned
@@ -65,6 +74,11 @@
       attempts++;
       var sc = scroller();
       var reachable = sc.scrollHeight - sc.clientHeight;
+      if (!fixEnabled) {
+        setY(saved);
+        if (attempts < 15 && reachable < saved) setTimeout(tryRestore, 400);
+        return;
+      }
       if (reachable >= saved) {
         setY(saved);
         return;

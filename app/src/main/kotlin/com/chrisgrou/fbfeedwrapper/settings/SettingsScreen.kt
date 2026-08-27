@@ -23,6 +23,7 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -53,11 +54,14 @@ fun SettingsScreen(
     onBack: () -> Unit,
     onOpenSync: () -> Unit,
     onOpenAllowedSources: () -> Unit,
+    debugToggles: DebugToggles,
     settingsViewModel: SettingsViewModel = viewModel(),
     updateViewModel: UpdateViewModel = viewModel(),
 ) {
     val allowedPages by settingsViewModel.allowedPages.collectAsState()
     val updateState by updateViewModel.state.collectAsState()
+    val feedScopeEnabled by debugToggles.feedScopeEnabled.collectAsState()
+    val scrollRestoreFixEnabled by debugToggles.scrollRestoreFixEnabled.collectAsState()
 
     // Without this, the system back gesture has nothing registered to intercept it on
     // this screen and falls through to the default (exit the app) instead of stepping
@@ -100,6 +104,33 @@ fun SettingsScreen(
                     leadingContent = { Icon(Icons.Filled.List, contentDescription = null) },
                     trailingContent = { Icon(Icons.Filled.ChevronRight, contentDescription = null) },
                     modifier = Modifier.fillMaxWidth().clickable(onClick = onOpenAllowedSources),
+                )
+                Text(
+                    "Προσωρινά toggles — για δοκιμή",
+                    style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 4.dp),
+                )
+                ListItem(
+                    headlineContent = { Text("Φιλτράρισμα μόνο στο βασικό feed") },
+                    supportingContent = { Text("Απενεργοποίησέ το για δοκιμή αν υποψιάζεσαι ότι προκαλεί άλλο πρόβλημα") },
+                    trailingContent = {
+                        Switch(
+                            checked = feedScopeEnabled,
+                            onCheckedChange = debugToggles::setFeedScopeEnabled,
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                ListItem(
+                    headlineContent = { Text("Διόρθωση καθυστέρησης scroll στην εκκίνηση") },
+                    supportingContent = { Text("Απενεργοποίησέ το για δοκιμή αν υποψιάζεσαι ότι προκαλεί άλλο πρόβλημα") },
+                    trailingContent = {
+                        Switch(
+                            checked = scrollRestoreFixEnabled,
+                            onCheckedChange = debugToggles::setScrollRestoreFixEnabled,
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth(),
                 )
             }
         }
