@@ -147,19 +147,20 @@ fun SettingsScreen(
  * Debug-only tools, split out from the main Settings hub so they don't clutter it for
  * everyday use: kill switches for two fixes (see DebugToggles) kept around so either
  * can be ruled in or out against a real-device bug by testing instead of guessing,
- * whether to show the on-screen filter-stats banner, and the button that captures and
- * shares a feed debug dump — previously a floating icon over the feed itself.
+ * whether to show the on-screen filter-stats banner, and whether to show the floating
+ * debug-capture button over the feed (it needs to float, not live as a button here —
+ * it captures whatever screen the bug is actually on, which this screen isn't).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DebugScreen(
     onBack: () -> Unit,
-    onDebugDump: () -> Unit,
     debugToggles: DebugToggles,
 ) {
     val feedScopeEnabled by debugToggles.feedScopeEnabled.collectAsState()
     val scrollRestoreFixEnabled by debugToggles.scrollRestoreFixEnabled.collectAsState()
     val statsBannerEnabled by debugToggles.statsBannerEnabled.collectAsState()
+    val debugButtonEnabled by debugToggles.debugButtonEnabled.collectAsState()
 
     BackHandler(onBack = onBack)
 
@@ -178,9 +179,15 @@ fun DebugScreen(
         LazyColumn(Modifier.fillMaxSize().padding(padding)) {
             item {
                 ListItem(
-                    headlineContent = { Text("Αποστολή feed debug dump") },
-                    supportingContent = { Text("Στατιστικά φίλτρου, μπάρα, και ορατό HTML") },
-                    modifier = Modifier.fillMaxWidth().clickable(onClick = onDebugDump),
+                    headlineContent = { Text("Εμφάνιση floating debug κουμπιού") },
+                    supportingContent = { Text("Αποστολή feed dump (στατιστικά φίλτρου, μπάρα, ορατό HTML) από οπουδήποτε") },
+                    trailingContent = {
+                        Switch(
+                            checked = debugButtonEnabled,
+                            onCheckedChange = debugToggles::setDebugButtonEnabled,
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth(),
                 )
                 ListItem(
                     headlineContent = { Text("Στατιστικά φίλτρου στην οθόνη") },

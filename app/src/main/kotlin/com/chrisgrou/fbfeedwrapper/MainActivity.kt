@@ -14,6 +14,11 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -128,6 +133,7 @@ private fun App(
             restoredState = restoredState,
             onWebViewCreated = onWebViewCreated,
             onOpenSettings = { screen = Screen.Settings },
+            onDebugDump = onDebugDump,
             settingsViewModel = settingsViewModel,
             debugToggles = debugToggles,
             displayPreferences = displayPreferences,
@@ -154,7 +160,6 @@ private fun App(
         )
         Screen.Debug -> DebugScreen(
             onBack = { screen = Screen.Settings },
-            onDebugDump = onDebugDump,
             debugToggles = debugToggles,
         )
     }
@@ -166,6 +171,7 @@ private fun FbWebViewScreen(
     restoredState: Bundle?,
     onWebViewCreated: (WebView) -> Unit,
     onOpenSettings: () -> Unit,
+    onDebugDump: () -> Unit,
     settingsViewModel: SettingsViewModel = viewModel(),
     debugToggles: DebugToggles,
     displayPreferences: FeedDisplayPreferences,
@@ -188,6 +194,7 @@ private fun FbWebViewScreen(
     val allowedPages by settingsViewModel.allowedPages.collectAsState()
     val filterStats by filterBridge.stats.collectAsState()
     val statsBannerEnabled by debugToggles.statsBannerEnabled.collectAsState()
+    val debugButtonEnabled by debugToggles.debugButtonEnabled.collectAsState()
     val hideReactions by displayPreferences.hideReactions.collectAsState()
     val hideSuggested by displayPreferences.hideSuggested.collectAsState()
 
@@ -268,12 +275,25 @@ private fun FbWebViewScreen(
             },
         )
 
-        // The floating Settings icon and debug-capture icon both moved into a Debug
-        // menu inside Settings (reachable via nav_override.js's overlay on Facebook's
-        // own Marketplace tab) — no more floating icons over the feed now that
-        // Settings has a reliable entry point that doesn't depend on this screen's
-        // own state.
-        //
+        // The floating Settings icon moved out (reachable via nav_override.js's
+        // overlay on Facebook's own Marketplace tab instead). The debug-capture icon
+        // stays floating, though — its whole point is capturing whatever screen the
+        // bug is actually on (e.g. the Replies pagination issue), which a button
+        // buried inside Settings can't do since navigating there leaves that screen.
+        // Toggleable now (Settings → Debug) rather than always shown.
+        if (BuildConfig.DEBUG && debugButtonEnabled) {
+            IconButton(
+                onClick = onDebugDump,
+                modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.ContentCopy,
+                    contentDescription = "Debug: αποστολή ορατού HTML",
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+            }
+        }
+
         // Debug-only: live filter counts, since console.log (see feed_filter.js)
         // isn't visible without a desktop chrome://inspect connection. Also
         // toggleable now (Settings → Debug), since it's a permanent on-screen
