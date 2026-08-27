@@ -98,12 +98,35 @@
   apply();
 
   var timer = null;
-  var observer = new MutationObserver(function () {
+  var observer = new MutationObserver(function (mutations) {
+    // Classification is memoized per node (see REACTION_CHECKED_ATTR above), which
+    // would otherwise permanently skip re-checking a node whose aria-label just
+    // changed — exactly the case this attribute observer exists to catch. Un-mark
+    // it here so the debounced apply() below re-classifies it from scratch.
+    for (var i = 0; i < mutations.length; i++) {
+      var m = mutations[i];
+      if (m.type === 'attributes' && m.target.nodeType === 1) {
+        m.target.removeAttribute(REACTION_CHECKED_ATTR);
+      }
+    }
     if (timer) return;
     timer = setTimeout(function () {
       timer = null;
       apply();
     }, 300);
   });
-  observer.observe(document.body, { childList: true, subtree: true });
+  // attributeFilter: ['aria-label'], not attributes:true broadly — an earlier version
+  // of a different script (nav_override.js) watched every attribute and measurably
+  // slowed the cold-launch feed render. But childList alone missed real cases here:
+  // the reaction pill's aria-label ("N reactions") isn't always present on the node
+  // when it's first inserted — Facebook sets it slightly later, an attribute-only
+  // change with no accompanying childList mutation — so those pills were never
+  // reclassified and stayed unhidden. Scoping the filter to just aria-label keeps
+  // this cheap while still catching that case.
+  observer.observe(document.body, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ['aria-label'],
+  });
 })();
