@@ -201,6 +201,41 @@ private fun FbWebViewScreen(
             },
         )
 
+        // Debug-only developer tool, not a user-facing option — unlike the Settings
+        // icon below, it's kept reachable on every screen (not just !canGoBack), since
+        // diagnosing a bug (e.g. the Replies pagination issue) often means capturing
+        // from exactly the subpage where it happens.
+        if (BuildConfig.DEBUG) {
+            Row(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(8.dp),
+            ) {
+                IconButton(onClick = {
+                    val web = webViewRef ?: return@IconButton
+                    web.evaluateJavascript(DUMP_FILTER_REPORT_JS) { reportResult ->
+                        val report = runCatching { JSONTokener(reportResult).nextValue() as String }
+                            .getOrNull().orEmpty()
+                        web.evaluateJavascript(DUMP_VIEWPORT_HTML_JS) { htmlResult ->
+                            val html = runCatching { JSONTokener(htmlResult).nextValue() as String }
+                                .getOrNull().orEmpty()
+                            if (report.isBlank() && html.isBlank()) {
+                                Toast.makeText(context, "Δεν βρέθηκε περιεχόμενο", Toast.LENGTH_SHORT).show()
+                                return@evaluateJavascript
+                            }
+                            shareHtmlDump(context, report, html)
+                        }
+                    }
+                }) {
+                    Icon(
+                        imageVector = Icons.Filled.ContentCopy,
+                        contentDescription = "Debug: αποστολή ορατού HTML",
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
+                }
+            }
+        }
+
         // Only shown at the top level of the feed, not while the user has navigated
         // into a photo/video/post/comments view: those have their own close, share,
         // and reaction controls at every edge of the screen (confirmed by an on-device
@@ -224,7 +259,7 @@ private fun FbWebViewScreen(
             Row(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .padding(8.dp),
+                    .padding(top = if (BuildConfig.DEBUG) 56.dp else 8.dp, end = 8.dp),
             ) {
                 IconButton(onClick = onOpenSettings) {
                     Icon(
@@ -232,33 +267,6 @@ private fun FbWebViewScreen(
                         contentDescription = "Ρυθμίσεις",
                         tint = MaterialTheme.colorScheme.primary,
                     )
-                }
-                // Debug-only developer tool, not a user-facing option: it needs the
-                // live feed WebView, which only exists on this screen, so it stays
-                // here rather than moving into Settings with everything else.
-                if (BuildConfig.DEBUG) {
-                    IconButton(onClick = {
-                        val web = webViewRef ?: return@IconButton
-                        web.evaluateJavascript(DUMP_FILTER_REPORT_JS) { reportResult ->
-                            val report = runCatching { JSONTokener(reportResult).nextValue() as String }
-                                .getOrNull().orEmpty()
-                            web.evaluateJavascript(DUMP_VIEWPORT_HTML_JS) { htmlResult ->
-                                val html = runCatching { JSONTokener(htmlResult).nextValue() as String }
-                                    .getOrNull().orEmpty()
-                                if (report.isBlank() && html.isBlank()) {
-                                    Toast.makeText(context, "Δεν βρέθηκε περιεχόμενο", Toast.LENGTH_SHORT).show()
-                                    return@evaluateJavascript
-                                }
-                                shareHtmlDump(context, report, html)
-                            }
-                        }
-                    }) {
-                        Icon(
-                            imageVector = Icons.Filled.ContentCopy,
-                            contentDescription = "Debug: αποστολή ορατού HTML",
-                            tint = MaterialTheme.colorScheme.primary,
-                        )
-                    }
                 }
             }
 
