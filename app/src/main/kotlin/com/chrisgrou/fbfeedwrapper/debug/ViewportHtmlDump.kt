@@ -116,37 +116,6 @@ const val DUMP_NAV_REPORT_JS = """
 })();
 """
 
-/**
- * Diagnostic for the comment-sort feature (comment_sort.js): dumps every element on
- * the page whose trimmed text matches one of Facebook's own sort labels, however it's
- * marked up — the heuristic scoped to role="button" isn't finding/clicking the real
- * dropdown on a real device, so this widens the search and shows the actual markup
- * instead of guessing at another selector.
- */
-const val DUMP_COMMENT_SORT_REPORT_JS = """
-(function () {
-  var LABELS = ['Most relevant', 'Newest', 'All comments'];
-  var lines = ['===== COMMENT SORT DIAGNOSTIC ====='];
-  var all = document.querySelectorAll('body *');
-  var found = 0;
-  for (var i = 0; i < all.length && found < 12; i++) {
-    var el = all[i];
-    if (el.children.length > 2) continue;
-    var t = (el.textContent || '').replace(/\s+/g, ' ').trim();
-    if (LABELS.indexOf(t) === -1) continue;
-    found++;
-    lines.push('[' + found + '] tag=' + el.tagName + ' role=' + el.getAttribute('role') +
-      ' class="' + (el.className || '') + '"');
-    lines.push('  outerHTML: ' + el.outerHTML.substring(0, 1200));
-    var p = el.parentElement;
-    lines.push('  parent outerHTML: ' + (p ? p.outerHTML.substring(0, 1500) : '(none)'));
-    lines.push('');
-  }
-  lines.push('MATCHES FOUND: ' + found);
-  return lines.join('\n');
-})();
-"""
-
 /** Writes the debug capture to a cache file and opens the system share sheet for it, so
  *  it can be sent anywhere (email, messaging, "save to files") without the clipboard's
  *  size limits. */

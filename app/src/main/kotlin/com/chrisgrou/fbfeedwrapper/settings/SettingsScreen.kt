@@ -2,7 +2,6 @@ package com.chrisgrou.fbfeedwrapper.settings
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -15,7 +14,6 @@ import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.List
-import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -24,7 +22,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -56,14 +53,11 @@ fun SettingsScreen(
     onBack: () -> Unit,
     onOpenSync: () -> Unit,
     onOpenAllowedSources: () -> Unit,
-    commentSortPreference: CommentSortPreference,
     settingsViewModel: SettingsViewModel = viewModel(),
     updateViewModel: UpdateViewModel = viewModel(),
 ) {
     val allowedPages by settingsViewModel.allowedPages.collectAsState()
     val updateState by updateViewModel.state.collectAsState()
-    val preferredSort by commentSortPreference.preferredSort.collectAsState()
-    var editingSort by remember { mutableStateOf(false) }
 
     // Without this, the system back gesture has nothing registered to intercept it on
     // this screen and falls through to the default (exit the app) instead of stepping
@@ -107,73 +101,11 @@ fun SettingsScreen(
                     trailingContent = { Icon(Icons.Filled.ChevronRight, contentDescription = null) },
                     modifier = Modifier.fillMaxWidth().clickable(onClick = onOpenAllowedSources),
                 )
-                ListItem(
-                    headlineContent = { Text("Ταξινόμηση σχολίων") },
-                    supportingContent = { Text(commentSortLabel(preferredSort)) },
-                    leadingContent = { Icon(Icons.Filled.Sort, contentDescription = null) },
-                    modifier = Modifier.fillMaxWidth().clickable { editingSort = true },
-                )
             }
         }
     }
 
     UpdateDialogHost(updateViewModel)
-
-    if (editingSort) {
-        CommentSortDialog(
-            current = preferredSort,
-            onDismiss = { editingSort = false },
-            onSelect = { sort ->
-                commentSortPreference.setPreferredSort(sort)
-                editingSort = false
-            },
-        )
-    }
-}
-
-/** Greek label for each of Facebook's own (English) comment-sort option strings —
- *  see CommentSortPreference for why the underlying values stay in English. */
-private fun commentSortLabel(sort: String): String = when (sort) {
-    COMMENT_SORT_NEWEST -> "Νεότερα πρώτα"
-    COMMENT_SORT_ALL -> "Όλα τα σχόλια"
-    else -> "Πιο σχετικά (προεπιλογή Facebook)"
-}
-
-@Composable
-private fun CommentSortDialog(
-    current: String,
-    onDismiss: () -> Unit,
-    onSelect: (String) -> Unit,
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Ταξινόμηση σχολίων") },
-        text = {
-            Column {
-                Text(
-                    "Εφαρμόζεται αυτόματα σε κάθε post που ανοίγεις.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.padding(bottom = 8.dp),
-                )
-                COMMENT_SORT_OPTIONS.forEach { option ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { onSelect(option) },
-                    ) {
-                        RadioButton(selected = option == current, onClick = { onSelect(option) })
-                        Text(
-                            commentSortLabel(option),
-                            modifier = Modifier.padding(start = 8.dp, top = 14.dp),
-                        )
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) { Text("Κλείσιμο") }
-        },
-    )
 }
 
 /**

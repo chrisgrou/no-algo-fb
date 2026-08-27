@@ -34,7 +34,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.chrisgrou.fbfeedwrapper.debug.DUMP_COMMENT_SORT_REPORT_JS
 import com.chrisgrou.fbfeedwrapper.debug.DUMP_FILTER_REPORT_JS
 import com.chrisgrou.fbfeedwrapper.debug.DUMP_NAV_REPORT_JS
 import com.chrisgrou.fbfeedwrapper.debug.DUMP_VIEWPORT_HTML_JS
@@ -43,7 +42,6 @@ import com.chrisgrou.fbfeedwrapper.filter.FeedFilterBridge
 import com.chrisgrou.fbfeedwrapper.nav.NavigationBridge
 import com.chrisgrou.fbfeedwrapper.scroll.ScrollPositionBridge
 import com.chrisgrou.fbfeedwrapper.settings.AllowedSourcesScreen
-import com.chrisgrou.fbfeedwrapper.settings.CommentSortPreference
 import com.chrisgrou.fbfeedwrapper.settings.SettingsScreen
 import com.chrisgrou.fbfeedwrapper.settings.SettingsViewModel
 import com.chrisgrou.fbfeedwrapper.sync.SourceSyncScreen
@@ -91,8 +89,6 @@ private fun App(
     // wherever the app navigates back to afterwards.
     val settingsViewModel: SettingsViewModel = viewModel()
     val updateViewModel: UpdateViewModel = viewModel()
-    val context = LocalContext.current
-    val commentSortPreference = remember { CommentSortPreference(context) }
 
     when (screen) {
         Screen.Feed -> FbWebViewScreen(
@@ -100,7 +96,6 @@ private fun App(
             onWebViewCreated = onWebViewCreated,
             onOpenSettings = { screen = Screen.Settings },
             settingsViewModel = settingsViewModel,
-            commentSortPreference = commentSortPreference,
         )
         Screen.Settings -> SettingsScreen(
             onBack = { screen = Screen.Feed },
@@ -108,7 +103,6 @@ private fun App(
             onOpenAllowedSources = { screen = Screen.AllowedSources },
             settingsViewModel = settingsViewModel,
             updateViewModel = updateViewModel,
-            commentSortPreference = commentSortPreference,
         )
         Screen.Sync -> SourceSyncScreen(
             onCancel = { screen = Screen.Settings },
@@ -131,7 +125,6 @@ private fun FbWebViewScreen(
     onWebViewCreated: (WebView) -> Unit,
     onOpenSettings: () -> Unit,
     settingsViewModel: SettingsViewModel = viewModel(),
-    commentSortPreference: CommentSortPreference,
 ) {
     val context = LocalContext.current
     val filterBridge = remember { FeedFilterBridge() }
@@ -188,7 +181,6 @@ private fun FbWebViewScreen(
                     addJavascriptInterface(filterBridge, "NativeFilter")
                     addJavascriptInterface(scrollBridge, "NativeScroll")
                     addJavascriptInterface(navBridge, "NativeNav")
-                    addJavascriptInterface(commentSortPreference, "NativeCommentSort")
                     webViewClient = FbWebViewClient(onHistoryChanged = { view ->
                         canGoBack = view.canGoBack()
                     })
@@ -230,20 +222,16 @@ private fun FbWebViewScreen(
                         web.evaluateJavascript(DUMP_NAV_REPORT_JS) { navResult ->
                             val navReport = runCatching { JSONTokener(navResult).nextValue() as String }
                                 .getOrNull().orEmpty()
-                            web.evaluateJavascript(DUMP_COMMENT_SORT_REPORT_JS) { sortResult ->
-                                val sortReport = runCatching { JSONTokener(sortResult).nextValue() as String }
+                            val report = listOf(filterReport, navReport)
+                                .filter { it.isNotBlank() }.joinToString("\n\n")
+                            web.evaluateJavascript(DUMP_VIEWPORT_HTML_JS) { htmlResult ->
+                                val html = runCatching { JSONTokener(htmlResult).nextValue() as String }
                                     .getOrNull().orEmpty()
-                                val report = listOf(filterReport, navReport, sortReport)
-                                    .filter { it.isNotBlank() }.joinToString("\n\n")
-                                web.evaluateJavascript(DUMP_VIEWPORT_HTML_JS) { htmlResult ->
-                                    val html = runCatching { JSONTokener(htmlResult).nextValue() as String }
-                                        .getOrNull().orEmpty()
-                                    if (report.isBlank() && html.isBlank()) {
-                                        Toast.makeText(context, "Δεν βρέθηκε περιεχόμενο", Toast.LENGTH_SHORT).show()
-                                        return@evaluateJavascript
-                                    }
-                                    shareHtmlDump(context, report, html)
+                                if (report.isBlank() && html.isBlank()) {
+                                    Toast.makeText(context, "Δεν βρέθηκε περιεχόμενο", Toast.LENGTH_SHORT).show()
+                                    return@evaluateJavascript
                                 }
+                                shareHtmlDump(context, report, html)
                             }
                         }
                     }
