@@ -49,14 +49,27 @@
     saved = parseFloat(window.NativeScroll.getSavedScrollY()) || 0;
   } catch (e) {}
 
+  // Reported bug: the feed stayed blank for 5-10s on launch. The previous version
+  // called setY(saved) unconditionally on every attempt, including while
+  // reachable < saved (the lazy-loaded content hasn't streamed in that far yet) —
+  // the browser clamps scrollTop to whatever IS currently scrollable, so that pinned
+  // the viewport at the bottom edge of the little content that had loaded (mostly
+  // blank space) instead of leaving it at the top where the story bar and first
+  // posts already render. Repeating that every 400ms for up to 15 attempts is
+  // exactly a multi-second "no posts visible" window. Only jump once reachable
+  // actually covers the saved offset — until then, leave the browser at its natural
+  // scrollTop 0 (a working, visible feed) rather than fighting the still-loading page.
   if (saved > 50) {
     var attempts = 0;
     (function tryRestore() {
       attempts++;
-      setY(saved);
       var sc = scroller();
       var reachable = sc.scrollHeight - sc.clientHeight;
-      if (attempts < 15 && reachable < saved) {
+      if (reachable >= saved) {
+        setY(saved);
+        return;
+      }
+      if (attempts < 15) {
         setTimeout(tryRestore, 400);
       }
     })();
