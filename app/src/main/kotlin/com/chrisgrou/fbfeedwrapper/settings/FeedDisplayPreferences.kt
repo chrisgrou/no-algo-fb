@@ -10,16 +10,18 @@ private const val PREFS_NAME = "feed_display"
 private const val KEY_HIDE_REACTIONS = "hide_reactions"
 private const val KEY_HIDE_SUGGESTED = "hide_suggested"
 private const val KEY_SHOW_SCROLL_TOP = "show_scroll_top_button"
+private const val KEY_SHOW_POST_NAV = "show_post_nav_buttons"
 
 /**
- * User-facing display toggles under Settings → Βελτιώσεις, read by feed_display.js
- * and scroll_to_top.js: whether to hide the reaction-count pill under each
+ * User-facing display toggles under Settings → Βελτιώσεις, read by feed_display.js,
+ * scroll_to_top.js and post_nav.js: whether to hide the reaction-count pill under each
  * post/comment ("👍 2"), whether to hide Facebook's own "Suggested for you"
- * group-suggestion cards in the feed, and whether the floating return-to-top button
- * shows at all. The first two are off by default — they hide real Facebook UI the
- * user may still want, unlike Feature 1's group/page filtering, which starts from an
- * explicit allow-list. The return-to-top button defaults on, since it's purely
- * additive UI of our own rather than something hidden from Facebook's page.
+ * group-suggestion cards in the feed, whether the floating return-to-top button shows
+ * at all, and whether the floating previous/next-post buttons show. The first two are
+ * off by default — they hide real Facebook UI the user may still want, unlike
+ * Feature 1's group/page filtering, which starts from an explicit allow-list. The
+ * floating buttons default on, since they're purely additive UI of our own rather
+ * than something hidden from Facebook's page.
  */
 class FeedDisplayPreferences(context: Context) {
 
@@ -33,6 +35,9 @@ class FeedDisplayPreferences(context: Context) {
 
     private val _showScrollTopButton = MutableStateFlow(prefs.getBoolean(KEY_SHOW_SCROLL_TOP, true))
     val showScrollTopButton: StateFlow<Boolean> = _showScrollTopButton.asStateFlow()
+
+    private val _showPostNavButtons = MutableStateFlow(prefs.getBoolean(KEY_SHOW_POST_NAV, true))
+    val showPostNavButtons: StateFlow<Boolean> = _showPostNavButtons.asStateFlow()
 
     fun setHideReactions(enabled: Boolean) {
         prefs.edit().putBoolean(KEY_HIDE_REACTIONS, enabled).apply()
@@ -49,6 +54,11 @@ class FeedDisplayPreferences(context: Context) {
         _showScrollTopButton.value = enabled
     }
 
+    fun setShowPostNavButtons(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_SHOW_POST_NAV, enabled).apply()
+        _showPostNavButtons.value = enabled
+    }
+
     @JavascriptInterface
     fun getHideReactions(): Boolean = prefs.getBoolean(KEY_HIDE_REACTIONS, false)
 
@@ -57,4 +67,7 @@ class FeedDisplayPreferences(context: Context) {
 
     @JavascriptInterface
     fun getShowScrollTopButton(): Boolean = prefs.getBoolean(KEY_SHOW_SCROLL_TOP, true)
+
+    @JavascriptInterface
+    fun getShowPostNavButtons(): Boolean = prefs.getBoolean(KEY_SHOW_POST_NAV, true)
 }

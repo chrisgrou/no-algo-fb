@@ -15,6 +15,8 @@ import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.Tab
@@ -148,6 +150,7 @@ fun EnhancementsScreen(
     val hideReactions by displayPreferences.hideReactions.collectAsState()
     val hideSuggested by displayPreferences.hideSuggested.collectAsState()
     val showScrollTopButton by displayPreferences.showScrollTopButton.collectAsState()
+    val showPostNavButtons by displayPreferences.showPostNavButtons.collectAsState()
 
     BackHandler(onBack = onBack)
 
@@ -201,6 +204,17 @@ fun EnhancementsScreen(
                         Switch(
                             checked = showScrollTopButton,
                             onCheckedChange = displayPreferences::setShowScrollTopButton,
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                ListItem(
+                    headlineContent = { Text("Κουμπιά προηγούμενο/επόμενο post") },
+                    supportingContent = { Text("Ημιδιάφανα κουμπιά κάτω αριστερά στο feed") },
+                    trailingContent = {
+                        Switch(
+                            checked = showPostNavButtons,
+                            onCheckedChange = displayPreferences::setShowPostNavButtons,
                         )
                     },
                     modifier = Modifier.fillMaxWidth(),
@@ -300,13 +314,17 @@ fun DebugScreen(
 }
 
 /**
- * Checkboxes for whichever icons Facebook's own top tab bar actually has on the
- * current page (Home, Watch, Marketplace, Notifications, Menu, ...) — the list comes
- * from tab_visibility.js reporting the live aria-labels it found, not a hardcoded
- * guess, since the bar's contents can differ across accounts/rollouts. Checking one
- * hides it (keeping its layout slot as empty space) and, if it's the first one
- * hidden, also relocates our own Settings entry point there instead of ever
- * overlaying a still-visible native icon — see nav_override.js/tab_visibility.js.
+ * Checkboxes and reorder arrows for whichever icons Facebook's own top tab bar
+ * actually has on the current page (Home, Watch, Marketplace, Notifications, Menu,
+ * ...) — the list comes from tab_visibility.js reporting the live aria-labels it
+ * found, not a hardcoded guess, since the bar's contents can differ across
+ * accounts/rollouts. Checking one hides it (keeping its layout slot as empty space)
+ * and, if it's the first one hidden, also relocates our own Settings entry point
+ * there instead of ever overlaying a still-visible native icon — see
+ * nav_override.js/tab_visibility.js. The up/down arrows reorder the row within
+ * tabPreferences.displayOrder(), which tab_visibility.js reads back to lay the real
+ * tab bar out in the same order (pure width/margin-left rewrite, not real DOM
+ * reordering — see relayout() there for why that's safe).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -316,6 +334,8 @@ fun TabIconsScreen(
 ) {
     val discoveredTabs by tabPreferences.discoveredTabs.collectAsState()
     val hiddenTabs by tabPreferences.hiddenTabs.collectAsState()
+    tabPreferences.tabOrder.collectAsState() // recompute displayOrder when this changes
+    val orderedTabs = tabPreferences.displayOrder(discoveredTabs)
 
     BackHandler(onBack = onBack)
 
@@ -334,13 +354,14 @@ fun TabIconsScreen(
         LazyColumn(Modifier.fillMaxSize().padding(padding)) {
             item {
                 Text(
-                    "Επίλεξε ποια εικονίδια της πάνω μπάρας του Facebook θέλεις να κρύβονται. " +
-                        "Η θέση τους παραμένει κενή αντί να καταλαμβάνεται από κάποιο άλλο — το " +
-                        "δικό μας εικονίδιο ρυθμίσεων εμφανίζεται εκεί μόλις κρύψεις το πρώτο.",
+                    "Επίλεξε ποια εικονίδια της πάνω μπάρας του Facebook θέλεις να κρύβονται, ή " +
+                        "άλλαξέ τους σειρά με τα βελάκια. Η θέση ενός κρυμμένου εικονιδίου παραμένει " +
+                        "κενή αντί να καταλαμβάνεται από κάποιο άλλο — το δικό μας εικονίδιο " +
+                        "ρυθμίσεων εμφανίζεται εκεί μόλις κρύψεις το πρώτο.",
                     style = MaterialTheme.typography.bodyMedium,
                     modifier = Modifier.padding(16.dp),
                 )
-                if (discoveredTabs.isEmpty()) {
+                if (orderedTabs.isEmpty()) {
                     Text(
                         "Δεν βρέθηκαν ακόμα εικονίδια — άνοιξε το feed για λίγο και ξαναγύρισε εδώ.",
                         style = MaterialTheme.typography.bodyMedium,
@@ -349,8 +370,9 @@ fun TabIconsScreen(
                 }
             }
 
-            items(discoveredTabs) { label ->
+            items(orderedTabs) { label ->
                 val hidden = hiddenTabs.contains(label)
+                val index = orderedTabs.indexOf(label)
                 ListItem(
                     headlineContent = { Text(label) },
                     leadingContent = {
@@ -359,9 +381,23 @@ fun TabIconsScreen(
                             onCheckedChange = { tabPreferences.setTabHidden(label, it) },
                         )
                     },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { tabPreferences.setTabHidden(label, !hidden) },
+                    trailingContent = {
+                        Row {
+                            IconButton(
+                                onClick = { tabPreferences.moveTab(discoveredTabs, label, -1) },
+                                enabled = index > 0,
+                            ) {
+                                Icon(Icons.Filled.KeyboardArrowUp, contentDescription = "Μετακίνηση πάνω")
+                            }
+                            IconButton(
+                                onClick = { tabPreferences.moveTab(discoveredTabs, label, 1) },
+                                enabled = index < orderedTabs.size - 1,
+                            ) {
+                                Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "Μετακίνηση κάτω")
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
                 )
             }
         }

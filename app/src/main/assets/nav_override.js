@@ -8,14 +8,15 @@
 // position.
 //
 // Which tab it sits over is chosen to never visually cover a still-visible native
-// icon: tab_visibility.js (loaded just before this) marks whichever tab(s) the user
-// has hidden via Settings with data-ffw-tab-hidden="1", and this anchors on the first
-// one in DOM order. If more than one tab is hidden, tab_visibility.js's own relayout
-// collapses every other hidden slot and redistributes the remaining tabs (this
-// anchor slot included) across the bar's full width, so the row always fills
-// edge-to-edge rather than leaving a gap where an extra hidden tab used to be. Only
-// when the user hasn't hidden anything yet does this fall back to the old default
-// (Marketplace) so the app still has a working Settings entry point out of the box.
+// icon: tab_visibility.js (loaded just before this) marks the one tab reserved for
+// this overlay with data-ffw-tab-anchor="1" — the first hidden tab in whatever visual
+// order the user configured (Settings can also reorder tabs, not just hide them). If
+// more than one tab is hidden, tab_visibility.js's own relayout collapses every other
+// hidden slot and redistributes the remaining tabs (this anchor slot included) across
+// the bar's full width, so the row always fills edge-to-edge rather than leaving a
+// gap where an extra hidden tab used to be. Only when the user hasn't hidden anything
+// yet does this fall back to the old default (Marketplace) so the app still has a
+// working Settings entry point out of the box.
 //
 // The tab bar itself can still go missing (Facebook's own stuck-hidden bug — see
 // nav_bar_watchdog.js, injected alongside this and loaded first, which unsticks it);
@@ -42,7 +43,14 @@
   }
 
   function findFreedTab() {
-    return document.querySelector('[role="tablist"] [role="tab"][data-ffw-tab-hidden="1"]');
+    // data-ffw-tab-anchor, not data-ffw-tab-hidden: tab_visibility.js reserves exactly
+    // one hidden tab's slot for this overlay and marks that specific one — every other
+    // hidden tab collapses to nothing. A plain "first data-ffw-tab-hidden in DOM
+    // order" query used to agree with that choice only by coincidence (when visual
+    // order matched DOM order); once tab_visibility.js supports reordering, the two
+    // can disagree, so this has to defer to the exact element tab_visibility.js
+    // already chose rather than re-deriving its own answer.
+    return document.querySelector('[role="tablist"] [role="tab"][data-ffw-tab-anchor="1"]');
   }
 
   function findMarketplaceTab() {

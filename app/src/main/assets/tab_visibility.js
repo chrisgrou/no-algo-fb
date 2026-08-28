@@ -8,6 +8,15 @@
   window.__ffwTabVisibilityInstalled = true;
 
   var HIDDEN_ATTR = 'data-ffw-tab-hidden';
+  // Set on exactly one tab — whichever one is currently reserved for nav_override.js's
+  // Settings overlay — separately from HIDDEN_ATTR (every hidden tab carries that, not
+  // just the anchor). Needed once reordering entered the picture: nav_override.js used
+  // to just grab "the first data-ffw-tab-hidden in DOM order", which agreed with this
+  // script's own choice of anchor only as long as visual order matched DOM order. A
+  // custom order can now visually place a hidden tab ahead of others that are still
+  // earlier in the DOM, so the two scripts need to agree on the SAME element by
+  // querying this dedicated attribute instead of re-deriving it independently.
+  var ANCHOR_ATTR = 'data-ffw-tab-anchor';
 
   if (!document.getElementById('ffw-tab-visibility-style')) {
     var style = document.createElement('style');
@@ -53,35 +62,81 @@
     }
   }
 
+  // The saved order is just whichever labels the user has explicitly rearranged, not
+  // necessarily every tab on the page — this walks it first, then appends anything
+  // discovered but not mentioned (in its own natural DOM order) at the end, the same
+  // "explicit override, sensible fallback for the rest" shape hiddenSet() already has.
+  function orderedTabs(els) {
+    var saved = [];
+    try {
+      saved = window.NativeTabs ? JSON.parse(window.NativeTabs.getTabOrder()) : [];
+    } catch (e) {
+      saved = [];
+    }
+    var byLabel = {};
+    for (var i = 0; i < els.length; i++) {
+      var label = labelOf(els[i]);
+      if (label && !byLabel[label]) byLabel[label] = els[i];
+    }
+    var result = [];
+    var used = {};
+    for (var i = 0; i < saved.length; i++) {
+      var t = byLabel[saved[i]];
+      if (t && !used[saved[i]]) {
+        result.push(t);
+        used[saved[i]] = true;
+      }
+    }
+    for (var i = 0; i < els.length; i++) {
+      var label = labelOf(els[i]);
+      if (label && !used[label]) {
+        result.push(els[i]);
+        used[label] = true;
+      }
+    }
+    return result;
+  }
+
+  function isDefaultOrder(ordered, els) {
+    if (ordered.length !== els.length) return false;
+    for (var i = 0; i < els.length; i++) {
+      if (ordered[i] !== els[i]) return false;
+    }
+    return true;
+  }
+
   var ORIG_WIDTH_ATTR = 'data-ffw-tab-orig-width';
   var ORIG_MARGIN_ATTR = 'data-ffw-tab-orig-margin';
 
   // Facebook lays these tabs out with an explicit per-tab pixel width and a
   // cumulative margin-left (not flex-grow) — an on-device capture confirmed it: each
   // tab carries e.g. style="width:74px; margin-left:374px", 374 being the sum of the
-  // widths of every tab before it. The visibility:hidden rule above correctly reserves
-  // ONE slot (for nav_override.js's Settings overlay to sit on), but doesn't reclaim
-  // space for anything hidden *beyond* that — those extra hidden tabs just keep their
-  // own width, leaving a matching gap at the right edge of the bar (confirmed: hiding
-  // two tabs left a two-tab-wide gap, not just an overlay in the wrong place). This
-  // redistributes the same width+margin-left numbers Facebook itself uses across
-  // whichever tabs remain visible (plus the one reserved anchor slot), so the bar
-  // always fills edge-to-edge regardless of how many tabs are hidden.
-  function relayout(tablist, els, hidden) {
+  // widths of every tab before it. Since margin-left alone determines each tab's
+  // horizontal position (nothing here depends on the tab's actual DOM index), walking
+  // the tabs in a chosen visual order and assigning each one's width/margin-left along
+  // that walk reorders them on screen without ever touching Facebook's own DOM
+  // structure (no reordering, no removeChild/insertBefore — just the same category of
+  // inline-style-only write nav_bar_watchdog.js already established is safe). The same
+  // walk also reclaims space from every hidden tab beyond the one reserved anchor slot
+  // (confirmed: hiding two tabs used to leave a two-tab-wide gap, not just an overlay
+  // in the wrong place), so the bar always fills edge-to-edge regardless of how many
+  // tabs are hidden or how they're ordered.
+  function relayout(tablist, els, ordered, hidden) {
     for (var i = 0; i < els.length; i++) {
       var t = els[i];
       if (!t.hasAttribute(ORIG_WIDTH_ATTR)) {
         t.setAttribute(ORIG_WIDTH_ATTR, t.style.width || '');
         t.setAttribute(ORIG_MARGIN_ATTR, t.style.marginLeft || '');
       }
+      t.removeAttribute(ANCHOR_ATTR);
     }
 
     var hiddenEls = [];
-    for (var i = 0; i < els.length; i++) {
-      if (hidden[labelOf(els[i])]) hiddenEls.push(els[i]);
+    for (var i = 0; i < ordered.length; i++) {
+      if (hidden[labelOf(ordered[i])]) hiddenEls.push(ordered[i]);
     }
 
-    if (hiddenEls.length === 0) {
+    if (hiddenEls.length === 0 && isDefaultOrder(ordered, els)) {
       for (var i = 0; i < els.length; i++) {
         els[i].style.width = els[i].getAttribute(ORIG_WIDTH_ATTR);
         els[i].style.marginLeft = els[i].getAttribute(ORIG_MARGIN_ATTR);
@@ -89,23 +144,24 @@
       return;
     }
 
-    // First hidden tab in DOM order is the one nav_override.js anchors the Settings
-    // overlay on (see findFreedTab() there) — it needs a real, non-zero slot. Every
-    // other hidden tab collapses to nothing, its width folded into the slots that
-    // remain.
-    var anchor = hiddenEls[0];
+    // First hidden tab in visual order gets the one reserved, non-zero slot — see
+    // ANCHOR_ATTR above for why nav_override.js needs this marked explicitly rather
+    // than re-deriving "the first hidden tab" itself. Every other hidden tab collapses
+    // to nothing, its width folded into the slots that remain.
+    var anchor = hiddenEls.length > 0 ? hiddenEls[0] : null;
+    if (anchor) anchor.setAttribute(ANCHOR_ATTR, '1');
     var slotWidth = tablist.getBoundingClientRect().width;
     if (!slotWidth) return;
     var slots = [];
-    for (var i = 0; i < els.length; i++) {
-      var t = els[i];
+    for (var i = 0; i < ordered.length; i++) {
+      var t = ordered[i];
       if (t === anchor || !hidden[labelOf(t)]) slots.push(t);
     }
     var each = slotWidth / slots.length;
 
     var cumulative = 0;
-    for (var i = 0; i < els.length; i++) {
-      var t = els[i];
+    for (var i = 0; i < ordered.length; i++) {
+      var t = ordered[i];
       if (slots.indexOf(t) === -1) {
         t.style.width = '0px';
         t.style.marginLeft = '0px';
@@ -131,12 +187,12 @@
       if (hidden[label]) els[i].setAttribute(HIDDEN_ATTR, '1');
       else els[i].removeAttribute(HIDDEN_ATTR);
     }
-    if (tablist) relayout(tablist, els, hidden);
+    if (tablist) relayout(tablist, els, orderedTabs(els), hidden);
     reportDiscovered(labels);
     // nav_override.js anchors its Settings overlay on whichever tab this just marked
-    // hidden — re-sync it now rather than waiting for its own next scroll/resize/
-    // observer tick, so toggling a checkbox in Settings relocates the overlay right
-    // away instead of on a delay.
+    // as the anchor — re-sync it now rather than waiting for its own next scroll/
+    // resize/observer tick, so toggling or reordering in Settings relocates the
+    // overlay right away instead of on a delay.
     window.__ffwSyncNavOverlay && window.__ffwSyncNavOverlay();
   }
 

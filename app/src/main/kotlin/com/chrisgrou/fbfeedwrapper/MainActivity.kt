@@ -60,6 +60,7 @@ private const val REFRESH_FILTER_JS = "window.__ffwRefreshAllowed && window.__ff
 private const val REFRESH_DISPLAY_JS = "window.__ffwRefreshDisplay && window.__ffwRefreshDisplay();"
 private const val REFRESH_TABS_JS = "window.__ffwRefreshTabs && window.__ffwRefreshTabs();"
 private const val REFRESH_SCROLL_TOP_JS = "window.__ffwRefreshScrollTop && window.__ffwRefreshScrollTop();"
+private const val REFRESH_POST_NAV_JS = "window.__ffwRefreshPostNav && window.__ffwRefreshPostNav();"
 
 class MainActivity : ComponentActivity() {
 
@@ -215,7 +216,9 @@ private fun FbWebViewScreen(
     val hideReactions by displayPreferences.hideReactions.collectAsState()
     val hideSuggested by displayPreferences.hideSuggested.collectAsState()
     val showScrollTopButton by displayPreferences.showScrollTopButton.collectAsState()
+    val showPostNavButtons by displayPreferences.showPostNavButtons.collectAsState()
     val hiddenTabs by tabPreferences.hiddenTabs.collectAsState()
+    val tabOrder by tabPreferences.tabOrder.collectAsState()
 
     // Re-applies the filter in the already-loaded page whenever the user
     // edits the allowed-pages list in Settings.
@@ -232,16 +235,21 @@ private fun FbWebViewScreen(
         webViewRef?.evaluateJavascript(REFRESH_DISPLAY_JS, null)
     }
 
-    // Re-applies tab_visibility.js's hide/show state (and relocates the Settings
-    // overlay to the newly freed slot) whenever the user checks/unchecks a top-bar
-    // icon in Settings — same shape as the two effects above.
-    LaunchedEffect(hiddenTabs) {
+    // Re-applies tab_visibility.js's hide/show state and layout (and relocates the
+    // Settings overlay to the newly freed slot) whenever the user checks/unchecks or
+    // reorders a top-bar icon in Settings — same shape as the two effects above.
+    LaunchedEffect(hiddenTabs, tabOrder) {
         webViewRef?.evaluateJavascript(REFRESH_TABS_JS, null)
     }
 
     // Re-applies the return-to-top button's on/off preference the same way.
     LaunchedEffect(showScrollTopButton) {
         webViewRef?.evaluateJavascript(REFRESH_SCROLL_TOP_JS, null)
+    }
+
+    // Re-applies the previous/next-post buttons' on/off preference the same way.
+    LaunchedEffect(showPostNavButtons) {
+        webViewRef?.evaluateJavascript(REFRESH_POST_NAV_JS, null)
     }
 
     // Without this, the system back gesture has nothing registered to intercept it, so
