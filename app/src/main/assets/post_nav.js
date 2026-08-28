@@ -12,10 +12,26 @@
 
   var POST_SELECTOR = '[data-tracking-duration-id]';
   var HIDDEN_ATTR = 'data-ffw-hidden';
-  var EDGE_THRESHOLD = 4;
+  var EDGE_THRESHOLD = 8;
 
   function scroller() {
     return document.querySelector('[data-type="vscroller"]') || document.scrollingElement || document.body;
+  }
+
+  // The "top of the screen" a post should align to isn't the raw viewport edge (y=0)
+  // — Facebook's own top tab bar sits on top of the content and, near the top of the
+  // feed, can occupy up to ~90px of screen space (see nav_bar_watchdog.js for its own
+  // show/hide behavior). Comparing against y=0 there meant the post already sitting
+  // right below the bar looked like it still needed to move (its rect.top was >0, the
+  // bar's own height), so nextPost() kept re-selecting that SAME post instead of the
+  // one after it — scrollToPost() then computed a near-zero delta and nothing visibly
+  // moved. Once the bar auto-hides further down the feed this returns 0, i.e. no
+  // adjustment, matching the original assumption everywhere except right at the top.
+  function contentTop() {
+    var tablist = document.querySelector('[role="tablist"]');
+    if (!tablist) return 0;
+    var rect = tablist.getBoundingClientRect();
+    return rect.height > 0 ? rect.bottom : 0;
   }
 
   function visiblePosts() {
@@ -34,29 +50,31 @@
 
   function scrollToPost(post) {
     var sc = scroller();
-    var delta = post.getBoundingClientRect().top - sc.getBoundingClientRect().top;
+    var delta = post.getBoundingClientRect().top - contentTop();
     var target = sc.scrollTop + delta;
     if (sc.scrollTo) sc.scrollTo({ top: target, behavior: 'smooth' });
     else sc.scrollTop = target;
   }
 
-  // First post below the current viewport top — the post "at the top" right now
-  // already has top <= EDGE_THRESHOLD, so this naturally skips it and lands on the
+  // First post below the visible content top — the post already aligned there has
+  // top <= contentTop() + EDGE_THRESHOLD, so this naturally skips it and lands on the
   // next one, whether the current one is fully in view or only partway scrolled past.
   function nextPost() {
+    var top = contentTop();
     var posts = visiblePosts();
     for (var i = 0; i < posts.length; i++) {
-      if (posts[i].getBoundingClientRect().top > EDGE_THRESHOLD) return posts[i];
+      if (posts[i].getBoundingClientRect().top > top + EDGE_THRESHOLD) return posts[i];
     }
     return null;
   }
 
   // Mirror of nextPost(): the last post whose top has already scrolled above the
-  // viewport.
+  // visible content area.
   function prevPost() {
+    var top = contentTop();
     var posts = visiblePosts();
     for (var i = posts.length - 1; i >= 0; i--) {
-      if (posts[i].getBoundingClientRect().top < -EDGE_THRESHOLD) return posts[i];
+      if (posts[i].getBoundingClientRect().top < top - EDGE_THRESHOLD) return posts[i];
     }
     return null;
   }
