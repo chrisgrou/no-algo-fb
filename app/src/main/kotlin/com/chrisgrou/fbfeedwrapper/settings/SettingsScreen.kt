@@ -2,12 +2,14 @@ package com.chrisgrou.fbfeedwrapper.settings
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.AutoAwesome
@@ -15,9 +17,9 @@ import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.Tab
 import androidx.compose.material3.AlertDialog
@@ -34,12 +36,17 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.chrisgrou.fbfeedwrapper.update.UpdateDialogHost
@@ -314,17 +321,18 @@ fun DebugScreen(
 }
 
 /**
- * Checkboxes and reorder arrows for whichever icons Facebook's own top tab bar
+ * Checkboxes and a drag handle for whichever icons Facebook's own top tab bar
  * actually has on the current page (Home, Watch, Marketplace, Notifications, Menu,
- * ...) — the list comes from tab_visibility.js reporting the live aria-labels it
- * found, not a hardcoded guess, since the bar's contents can differ across
- * accounts/rollouts. Checking one hides it (keeping its layout slot as empty space)
- * and, if it's the first one hidden, also relocates our own Settings entry point
- * there instead of ever overlaying a still-visible native icon — see
- * nav_override.js/tab_visibility.js. The up/down arrows reorder the row within
- * tabPreferences.displayOrder(), which tab_visibility.js reads back to lay the real
- * tab bar out in the same order (pure width/margin-left rewrite, not real DOM
- * reordering — see relayout() there for why that's safe).
+ * ...), plus a row standing in for our own Settings icon — the tab list comes from
+ * tab_visibility.js reporting the live aria-labels it found, not a hardcoded guess,
+ * since the bar's contents can differ across accounts/rollouts. Checking a native tab
+ * hides it (its layout slot is reclaimed by the tabs around it); the Settings row has
+ * no checkbox since it always needs to stay reachable somewhere, but drags exactly
+ * like any other row. Dragging any row (by its handle) reorders
+ * tabPreferences.tabOrder, which tab_visibility.js reads back to lay the real tab bar
+ * — and this Settings row's own reserved slot — out in the same order (pure
+ * width/margin-left rewrite, not real DOM reordering — see relayout() there for why
+ * that's safe).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -334,8 +342,19 @@ fun TabIconsScreen(
 ) {
     val discoveredTabs by tabPreferences.discoveredTabs.collectAsState()
     val hiddenTabs by tabPreferences.hiddenTabs.collectAsState()
-    tabPreferences.tabOrder.collectAsState() // recompute displayOrder when this changes
-    val orderedTabs = tabPreferences.displayOrder(discoveredTabs)
+    tabPreferences.tabOrder.collectAsState() // recompute baseOrder when this changes
+    val baseOrder = tabPreferences.displayOrder(discoveredTabs)
+
+    // Local, mutable copy driving the drag animation; re-seeded whenever the
+    // underlying preference/discovery data actually changes (not on every
+    // recomposition), so a drag in progress isn't reset mid-gesture by an unrelated
+    // recomposition.
+    var items by remember { mutableStateOf(baseOrder) }
+    LaunchedEffect(baseOrder) { items = baseOrder }
+
+    var draggedIndex by remember { mutableStateOf(-1) }
+    var dragOffsetY by remember { mutableStateOf(0f) }
+    val itemHeights = remember { mutableStateMapOf<Int, Int>() }
 
     BackHandler(onBack = onBack)
 
@@ -355,13 +374,13 @@ fun TabIconsScreen(
             item {
                 Text(
                     "Επίλεξε ποια εικονίδια της πάνω μπάρας του Facebook θέλεις να κρύβονται, ή " +
-                        "άλλαξέ τους σειρά με τα βελάκια. Η θέση ενός κρυμμένου εικονιδίου παραμένει " +
-                        "κενή αντί να καταλαμβάνεται από κάποιο άλλο — το δικό μας εικονίδιο " +
-                        "ρυθμίσεων εμφανίζεται εκεί μόλις κρύψεις το πρώτο.",
+                        "σύρε τα (από τη λαβή δεξιά) για να αλλάξεις σειρά — μαζί με το δικό μας " +
+                        "εικονίδιο ρυθμίσεων, που πάντα καταλαμβάνει τη δική του θέση χωρίς ποτέ να " +
+                        "καλύπτει κάποιο ορατό εικονίδιο.",
                     style = MaterialTheme.typography.bodyMedium,
                     modifier = Modifier.padding(16.dp),
                 )
-                if (orderedTabs.isEmpty()) {
+                if (items.size <= 1) {
                     Text(
                         "Δεν βρέθηκαν ακόμα εικονίδια — άνοιξε το feed για λίγο και ξαναγύρισε εδώ.",
                         style = MaterialTheme.typography.bodyMedium,
@@ -370,34 +389,66 @@ fun TabIconsScreen(
                 }
             }
 
-            items(orderedTabs) { label ->
+            itemsIndexed(items, key = { _, label -> label }) { index, label ->
+                val isSettings = label == TabPreferences.SETTINGS_SENTINEL
                 val hidden = hiddenTabs.contains(label)
-                val index = orderedTabs.indexOf(label)
+                val offsetY = if (draggedIndex == index) dragOffsetY else 0f
                 ListItem(
-                    headlineContent = { Text(label) },
+                    headlineContent = { Text(if (isSettings) "Ρυθμίσεις (δικό μας εικονίδιο)" else label) },
                     leadingContent = {
-                        Checkbox(
-                            checked = hidden,
-                            onCheckedChange = { tabPreferences.setTabHidden(label, it) },
-                        )
-                    },
-                    trailingContent = {
-                        Row {
-                            IconButton(
-                                onClick = { tabPreferences.moveTab(discoveredTabs, label, -1) },
-                                enabled = index > 0,
-                            ) {
-                                Icon(Icons.Filled.KeyboardArrowUp, contentDescription = "Μετακίνηση πάνω")
-                            }
-                            IconButton(
-                                onClick = { tabPreferences.moveTab(discoveredTabs, label, 1) },
-                                enabled = index < orderedTabs.size - 1,
-                            ) {
-                                Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "Μετακίνηση κάτω")
-                            }
+                        if (isSettings) {
+                            Icon(Icons.Filled.Settings, contentDescription = null)
+                        } else {
+                            Checkbox(
+                                checked = hidden,
+                                onCheckedChange = { tabPreferences.setTabHidden(label, it) },
+                            )
                         }
                     },
-                    modifier = Modifier.fillMaxWidth(),
+                    trailingContent = {
+                        Icon(
+                            Icons.Filled.DragHandle,
+                            contentDescription = "Σύρε για αλλαγή σειράς",
+                            modifier = Modifier.pointerInput(label) {
+                                detectDragGestures(
+                                    onDragStart = {
+                                        draggedIndex = index
+                                        dragOffsetY = 0f
+                                    },
+                                    onDragEnd = {
+                                        draggedIndex = -1
+                                        dragOffsetY = 0f
+                                        tabPreferences.setOrder(items)
+                                    },
+                                    onDragCancel = {
+                                        draggedIndex = -1
+                                        dragOffsetY = 0f
+                                    },
+                                    onDrag = { change, dragAmount ->
+                                        change.consume()
+                                        val from = draggedIndex
+                                        val rowHeight = itemHeights[from]
+                                        if (rowHeight != null && rowHeight > 0) {
+                                            dragOffsetY += dragAmount.y
+                                            if (dragOffsetY > rowHeight / 2 && from < items.lastIndex) {
+                                                items = items.toMutableList().apply { add(from + 1, removeAt(from)) }
+                                                draggedIndex = from + 1
+                                                dragOffsetY -= rowHeight
+                                            } else if (dragOffsetY < -rowHeight / 2 && from > 0) {
+                                                items = items.toMutableList().apply { add(from - 1, removeAt(from)) }
+                                                draggedIndex = from - 1
+                                                dragOffsetY += rowHeight
+                                            }
+                                        }
+                                    },
+                                )
+                            },
+                        )
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .onGloballyPositioned { itemHeights[index] = it.size.height }
+                        .graphicsLayer { translationY = offsetY },
                 )
             }
         }

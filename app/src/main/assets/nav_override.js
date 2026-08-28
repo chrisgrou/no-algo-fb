@@ -4,23 +4,23 @@
 // *entire* tab bar started disappearing after a pull-to-refresh, consistent with
 // React's reconciler choking on a removeChild/replaceChild it didn't expect. This
 // version only ever reads layout (getBoundingClientRect/getComputedStyle) and paints
-// an independent, opaque button of our own on top of a tab, synced to its real
-// position.
+// an independent, opaque button of our own on top, synced to a position tab_visibility.js
+// computes.
 //
-// Which tab it sits over is chosen to never visually cover a still-visible native
-// icon: tab_visibility.js (loaded just before this) marks the one tab reserved for
-// this overlay with data-ffw-tab-anchor="1" — the first hidden tab in whatever visual
-// order the user configured (Settings can also reorder tabs, not just hide them). If
-// more than one tab is hidden, tab_visibility.js's own relayout collapses every other
-// hidden slot and redistributes the remaining tabs (this anchor slot included) across
-// the bar's full width, so the row always fills edge-to-edge rather than leaving a
-// gap where an extra hidden tab used to be. Only when the user hasn't hidden anything
-// yet does this fall back to the old default (Marketplace) so the app still has a
-// working Settings entry point out of the box.
+// Where it sits is never derived from a specific native tab's own rect — an earlier
+// version anchored on "whichever tab is currently hidden", which needed this script
+// and tab_visibility.js to agree on exactly which one that was, and broke once
+// reordering could place a hidden tab visually ahead of others still earlier in the
+// DOM. Instead tab_visibility.js's own relayout() always reserves the Settings icon
+// its own slot (never overlaying a still-visible native icon) and records that slot's
+// position as a *fraction* of the tab bar's width in window.__ffwSettingsSlotFrac;
+// this script turns that back into real pixels against the bar's own live rect on
+// every scroll/resize, so it stays correctly positioned between tab_visibility.js's
+// own (debounced, mutation-triggered) passes.
 //
 // The tab bar itself can still go missing (Facebook's own stuck-hidden bug — see
 // nav_bar_watchdog.js, injected alongside this and loaded first, which unsticks it);
-// this script just tracks whatever position/visibility the tab currently has and
+// this script just tracks whatever position/visibility the bar currently has and
 // doesn't need to know why it changed.
 (function () {
   if (window.__ffwNavInstalled) return;
@@ -42,30 +42,6 @@
     return svg;
   }
 
-  function findFreedTab() {
-    // data-ffw-tab-anchor, not data-ffw-tab-hidden: tab_visibility.js reserves exactly
-    // one hidden tab's slot for this overlay and marks that specific one — every other
-    // hidden tab collapses to nothing. A plain "first data-ffw-tab-hidden in DOM
-    // order" query used to agree with that choice only by coincidence (when visual
-    // order matched DOM order); once tab_visibility.js supports reordering, the two
-    // can disagree, so this has to defer to the exact element tab_visibility.js
-    // already chose rather than re-deriving its own answer.
-    return document.querySelector('[role="tablist"] [role="tab"][data-ffw-tab-anchor="1"]');
-  }
-
-  function findMarketplaceTab() {
-    var tabs = document.querySelectorAll('[role="tab"]');
-    for (var i = 0; i < tabs.length; i++) {
-      var label = (tabs[i].getAttribute('aria-label') || '').toLowerCase();
-      if (label.indexOf('marketplace') !== -1) return tabs[i];
-    }
-    return null;
-  }
-
-  function findAnchorTab() {
-    return findFreedTab() || findMarketplaceTab();
-  }
-
   // Facebook's pull-to-refresh spinner isn't revealed by scrolling — it's a sibling
   // element whose own margin-top animates from a resting -36px up toward 0px as the
   // user drags, with no scroll event firing at all (an on-device capture caught it
@@ -82,7 +58,6 @@
   }
 
   var overlay = null;
-  var trackedTab = null;
 
   function ensureOverlay() {
     if (overlay) return overlay;
@@ -111,31 +86,23 @@
   // dark/light mode), so read it off a live ancestor rather than hardcoding it —
   // otherwise the overlay would sit on top as a visibly mismatched patch instead of
   // blending in like a real tab.
-  function backgroundBehind(tab) {
-    var node = tab.parentElement;
-    while (node && node !== document.body) {
-      var bg = getComputedStyle(node).backgroundColor;
+  function backgroundBehind(node) {
+    var current = node.parentElement;
+    while (current && current !== document.body) {
+      var bg = getComputedStyle(current).backgroundColor;
       if (bg && bg !== 'rgba(0, 0, 0, 0)' && bg !== 'transparent') return bg;
-      node = node.parentElement;
+      current = current.parentElement;
     }
     return '#242526';
   }
 
-  // Mirrors the tab's own position/size/visibility onto the overlay every time this
-  // runs, rather than once — the tab bar can reflow (rotation, keyboard, Facebook's
-  // own re-renders) and can vanish outright (see nav_bar_watchdog.js). When that
-  // happens the tab's rect collapses to nothing, so hiding the overlay in that case
-  // keeps our button from floating in a stale position over content that's no longer
-  // a tab bar.
-  // Draws our own bottom divider instead of relying on the anchor tab's — the anchor
-  // is always visibility:hidden now (see tab_visibility.js), which hides whatever
-  // border/line it used to carry too, so there's nothing left to "peek through"
-  // underneath a shorter overlay the way there was when the overlay sat on Facebook's
-  // own still-visible Marketplace tab. Reads the tab bar's own live computed
-  // border-bottom instead of a hardcoded color, same reasoning as backgroundBehind()
-  // above; if the bar itself doesn't carry one (e.g. it's drawn some other way not
-  // reachable via getComputedStyle, such as a box-shadow), this simply draws nothing
-  // rather than guessing a color that might not match.
+  // Draws our own bottom divider rather than relying on any native tab's — the
+  // Settings icon never sits on top of a real tab element anymore, so there's nothing
+  // underneath to "peek through". Reads the tab bar's own live computed border-bottom
+  // instead of a hardcoded color, same reasoning as backgroundBehind() above; if the
+  // bar itself doesn't carry one (e.g. it's drawn some other way not reachable via
+  // getComputedStyle, such as a box-shadow), this simply draws nothing rather than
+  // guessing a color that might not match.
   function dividerBorder(tablist) {
     var cs = getComputedStyle(tablist);
     if (parseFloat(cs.borderBottomWidth) > 0 && cs.borderBottomColor && cs.borderBottomColor !== 'rgba(0, 0, 0, 0)') {
@@ -144,37 +111,39 @@
     return '';
   }
 
+  // Turns tab_visibility.js's fractional slot (window.__ffwSettingsSlotFrac) back into
+  // real pixels against the tab bar's current rect — recomputed on every call, so this
+  // stays correct across scroll/resize/reflow without needing tab_visibility.js's own
+  // (debounced, mutation-triggered) pass to have just run.
   function sync() {
     if (pullToRefreshActive()) {
       if (overlay) overlay.style.display = 'none';
       return;
     }
-    var tab = findAnchorTab() || trackedTab;
-    if (!tab || !document.body.contains(tab)) {
+    var tablist = document.querySelector('[role="tablist"]');
+    var frac = window.__ffwSettingsSlotFrac;
+    if (!tablist || !frac) {
       if (overlay) overlay.style.display = 'none';
-      trackedTab = null;
       return;
     }
-    trackedTab = tab;
-    var rect = tab.getBoundingClientRect();
+    var rect = tablist.getBoundingClientRect();
     if (rect.width === 0 || rect.height === 0) {
       if (overlay) overlay.style.display = 'none';
       return;
     }
     var el = ensureOverlay();
-    el.style.left = rect.left + 'px';
+    el.style.left = (rect.left + frac.leftFrac * rect.width) + 'px';
     el.style.top = rect.top + 'px';
-    el.style.width = rect.width + 'px';
+    el.style.width = (frac.widthFrac * rect.width) + 'px';
     el.style.height = rect.height + 'px';
-    el.style.background = backgroundBehind(tab);
-    var tablist = tab.closest('[role="tablist"]');
-    el.style.borderBottom = tablist ? dividerBorder(tablist) : '';
+    el.style.background = backgroundBehind(tablist);
+    el.style.borderBottom = dividerBorder(tablist);
     el.style.display = 'flex';
   }
 
-  // Exposed so tab_visibility.js can trigger an immediate re-anchor right after the
-  // user hides/shows a tab in Settings, instead of waiting for the next scroll/resize
-  // or the debounced MutationObserver below to happen to fire.
+  // Exposed so tab_visibility.js can trigger an immediate re-sync right after the user
+  // hides/shows or reorders a tab in Settings, instead of waiting for the next
+  // scroll/resize or the debounced MutationObserver below to happen to fire.
   window.__ffwSyncNavOverlay = sync;
 
   sync();

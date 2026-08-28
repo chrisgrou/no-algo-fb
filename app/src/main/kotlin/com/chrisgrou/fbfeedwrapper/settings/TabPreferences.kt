@@ -13,20 +13,27 @@ private const val KEY_TAB_ORDER = "tab_order"
 
 /**
  * Which of Facebook's own top tab-bar icons (Home, Watch, Marketplace, ...) the user
- * chose to hide and what order they should appear in, plus the set tab_visibility.js
- * actually found on the current page (discoveredTabs) — read from the live DOM rather
- * than a hardcoded list, since the bar's contents can differ across accounts/rollouts.
- * Hiding a tab keeps its layout space (visibility:hidden, not display:none — see
- * tab_visibility.js) so nav_override.js can anchor our own Settings entry point in
- * that freed slot instead of ever overlaying a still-visible native icon.
+ * chose to hide and what order everything — those icons plus our own Settings icon —
+ * should appear in, plus the set tab_visibility.js actually found on the current page
+ * (discoveredTabs) — read from the live DOM rather than a hardcoded list, since the
+ * bar's contents can differ across accounts/rollouts. Hiding a tab keeps its layout
+ * space (visibility:hidden, not display:none — see tab_visibility.js) so its space can
+ * be reclaimed by the redistribution tab_visibility.js's relayout() does.
  *
- * tabOrder is stored as just the labels the user has explicitly rearranged, in their
- * chosen order — not a full, always-complete list. tab_visibility.js merges it with
- * whatever it actually discovers on the page (any tab not mentioned keeps its natural
- * position, appended after the ones that are), the same "explicit override, sensible
- * fallback for the rest" shape hiddenTabs already has.
+ * The Settings icon is represented in the order by [SETTINGS_SENTINEL], a plain string
+ * rather than a real discovered tab — it always gets its own slot in the bar (see
+ * relayout()), never by overlaying a still-visible native icon the way earlier
+ * versions of this feature did.
  */
 class TabPreferences(context: Context) {
+
+    companion object {
+        // Stands in for our own Settings icon wherever it sits in the order — not a
+        // real Facebook tab, so tab_visibility.js never looks it up by aria-label; it
+        // simply reserves a slot in the layout math at this position. The literal
+        // value must match SETTINGS_SENTINEL in tab_visibility.js exactly.
+        const val SETTINGS_SENTINEL = "__ffw_settings__"
+    }
 
     private val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
@@ -55,26 +62,20 @@ class TabPreferences(context: Context) {
         _hiddenTabs.value = updated
     }
 
-    // The list Settings actually displays and reorders — the saved order filtered down
-    // to labels still on the page, with any newly-discovered one appended at the end,
-    // so a stale saved entry (an icon Facebook no longer shows) never leaves a gap or
-    // a phantom row.
+    // The full list Settings displays and drag-reorders: the saved order filtered down
+    // to what's still relevant — discovered tabs plus the Settings sentinel, which is
+    // always relevant — with anything newly relevant (a tab just discovered, or the
+    // sentinel the first time this runs) appended at the end.
     fun displayOrder(discovered: List<String>): List<String> {
-        val known = _tabOrder.value.filter { it in discovered }
-        val missing = discovered.filter { it !in known }
+        val relevant = discovered + SETTINGS_SENTINEL
+        val known = _tabOrder.value.filter { it in relevant }
+        val missing = relevant.filter { it !in known }
         return known + missing
     }
 
-    fun moveTab(discovered: List<String>, label: String, delta: Int) {
-        val current = displayOrder(discovered).toMutableList()
-        val index = current.indexOf(label)
-        val target = index + delta
-        if (index < 0 || target !in current.indices) return
-        val tmp = current[index]
-        current[index] = current[target]
-        current[target] = tmp
-        prefs.edit().putString(KEY_TAB_ORDER, JSONArray(current).toString()).apply()
-        _tabOrder.value = current
+    fun setOrder(order: List<String>) {
+        prefs.edit().putString(KEY_TAB_ORDER, JSONArray(order).toString()).apply()
+        _tabOrder.value = order
     }
 
     @JavascriptInterface
