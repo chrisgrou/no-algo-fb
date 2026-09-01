@@ -110,6 +110,17 @@
     }
   }
 
+  // Feature 1's own on/off switch (Settings → Βελτιώσεις → "Ενεργοποίηση
+  // φιλτραρίσματος"), separate from the allow-list itself — off means every post
+  // shows, the same as an empty list already did, but reachable without clearing it.
+  function filteringEnabled() {
+    try {
+      return !window.NativeDisplay || window.NativeDisplay.getFilteringEnabled() !== false;
+    } catch (e) {
+      return true;
+    }
+  }
+
   var allowed = getAllowed();
 
   // Collapses internal whitespace/newlines to a single space. A long source name that
@@ -255,8 +266,9 @@
       resolved++;
       post.setAttribute(DECIDED_ATTR, '1');
 
-      // Empty allow-list: show everything until the user configures it.
-      if (allowed.size === 0 || allowed.has(name)) {
+      // Empty allow-list: show everything until the user configures it. Same when
+      // the feature's own toggle is off, regardless of what's actually in the list.
+      if (!filteringEnabled() || allowed.size === 0 || allowed.has(name)) {
         unhide(post, post.closest(SCROLLER_SELECTOR));
       } else {
         hiddenCount++;
@@ -312,7 +324,7 @@
           if (post.hasAttribute(HIDDEN_ATTR) || post.hasAttribute(DECIDED_ATTR)) continue;
           if (post.parentElement && post.parentElement.closest(POST_SELECTOR)) continue;
           var name = sourceNameFor(post);
-          if (name && allowed.size > 0 && !allowed.has(name)) {
+          if (name && filteringEnabled() && allowed.size > 0 && !allowed.has(name)) {
             post.setAttribute(HIDDEN_ATTR, '1');
           }
         }

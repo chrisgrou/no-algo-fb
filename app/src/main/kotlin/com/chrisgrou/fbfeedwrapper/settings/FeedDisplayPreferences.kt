@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 private const val PREFS_NAME = "feed_display"
+private const val KEY_FILTERING_ENABLED = "filtering_enabled"
 private const val KEY_HIDE_REACTIONS = "hide_reactions"
 private const val KEY_HIDE_SUGGESTED = "hide_suggested"
 private const val KEY_SHOW_SCROLL_TOP = "show_scroll_top_button"
@@ -31,6 +32,13 @@ class FeedDisplayPreferences(context: Context) {
 
     private val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
+    // Feature 1's own on/off switch, separate from the allow-list itself: turning this
+    // off shows every post regardless of what's in the list, without having to clear
+    // it (an empty list already meant "show everything" — this just makes that a
+    // reachable state without losing whatever's been built up).
+    private val _filteringEnabled = MutableStateFlow(prefs.getBoolean(KEY_FILTERING_ENABLED, true))
+    val filteringEnabled: StateFlow<Boolean> = _filteringEnabled.asStateFlow()
+
     private val _hideReactions = MutableStateFlow(prefs.getBoolean(KEY_HIDE_REACTIONS, false))
     val hideReactions: StateFlow<Boolean> = _hideReactions.asStateFlow()
 
@@ -45,6 +53,11 @@ class FeedDisplayPreferences(context: Context) {
 
     private val _buttonSize = MutableStateFlow(prefs.getInt(KEY_BUTTON_SIZE, DEFAULT_BUTTON_SIZE))
     val buttonSize: StateFlow<Int> = _buttonSize.asStateFlow()
+
+    fun setFilteringEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_FILTERING_ENABLED, enabled).apply()
+        _filteringEnabled.value = enabled
+    }
 
     fun setHideReactions(enabled: Boolean) {
         prefs.edit().putBoolean(KEY_HIDE_REACTIONS, enabled).apply()
@@ -71,6 +84,9 @@ class FeedDisplayPreferences(context: Context) {
         prefs.edit().putInt(KEY_BUTTON_SIZE, clamped).apply()
         _buttonSize.value = clamped
     }
+
+    @JavascriptInterface
+    fun getFilteringEnabled(): Boolean = prefs.getBoolean(KEY_FILTERING_ENABLED, true)
 
     @JavascriptInterface
     fun getHideReactions(): Boolean = prefs.getBoolean(KEY_HIDE_REACTIONS, false)

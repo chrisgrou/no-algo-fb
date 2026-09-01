@@ -144,6 +144,7 @@ fun EnhancementsScreen(
     settingsViewModel: SettingsViewModel = viewModel(),
 ) {
     val allowedPages by settingsViewModel.allowedPages.collectAsState()
+    val filteringEnabled by displayPreferences.filteringEnabled.collectAsState()
     val hideReactions by displayPreferences.hideReactions.collectAsState()
     val hideSuggested by displayPreferences.hideSuggested.collectAsState()
     val showScrollTopButton by displayPreferences.showScrollTopButton.collectAsState()
@@ -166,6 +167,25 @@ fun EnhancementsScreen(
     ) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding)) {
             item {
+                ListItem(
+                    headlineContent = { Text("Ενεργοποίηση φιλτραρίσματος") },
+                    supportingContent = {
+                        Text(
+                            if (filteringEnabled) {
+                                "Μόνο posts από τις επιτρεπόμενες πηγές εμφανίζονται"
+                            } else {
+                                "Ανενεργό — εμφανίζονται όλα τα posts, ό,τι κι αν έχεις στη λίστα"
+                            },
+                        )
+                    },
+                    trailingContent = {
+                        Switch(
+                            checked = filteringEnabled,
+                            onCheckedChange = displayPreferences::setFilteringEnabled,
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                )
                 ListItem(
                     headlineContent = { Text("Επιτρεπόμενες πηγές") },
                     supportingContent = {

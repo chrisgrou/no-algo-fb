@@ -212,6 +212,7 @@ private fun FbWebViewScreen(
     // that instead via WebChromeClient.onReceivedTitle.
     var isBaseFeed by remember { mutableStateOf(true) }
     val allowedPages by settingsViewModel.allowedPages.collectAsState()
+    val filteringEnabled by displayPreferences.filteringEnabled.collectAsState()
     val filterStats by filterBridge.stats.collectAsState()
     val statsBannerEnabled by debugToggles.statsBannerEnabled.collectAsState()
     val debugButtonEnabled by debugToggles.debugButtonEnabled.collectAsState()
@@ -224,9 +225,9 @@ private fun FbWebViewScreen(
     val tabOrder by tabPreferences.tabOrder.collectAsState()
     val topBarModEnabled by debugToggles.topBarModEnabled.collectAsState()
 
-    // Re-applies the filter in the already-loaded page whenever the user
-    // edits the allowed-pages list in Settings.
-    LaunchedEffect(allowedPages) {
+    // Re-applies the filter in the already-loaded page whenever the user edits the
+    // allowed-pages list, or flips the feature's own on/off toggle, in Settings.
+    LaunchedEffect(allowedPages, filteringEnabled) {
         filterBridge.allowedAuthors = allowedPages
         webViewRef?.evaluateJavascript(REFRESH_FILTER_JS, null)
     }
