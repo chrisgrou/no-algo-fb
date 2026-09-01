@@ -19,19 +19,26 @@
   }
 
   // The "top of the screen" a post should align to isn't the raw viewport edge (y=0)
-  // — Facebook's own top tab bar sits on top of the content and, near the top of the
-  // feed, can occupy up to ~90px of screen space (see nav_bar_watchdog.js for its own
-  // show/hide behavior). Comparing against y=0 there meant the post already sitting
-  // right below the bar looked like it still needed to move (its rect.top was >0, the
-  // bar's own height), so nextPost() kept re-selecting that SAME post instead of the
-  // one after it — scrollToPost() then computed a near-zero delta and nothing visibly
-  // moved. Once the bar auto-hides further down the feed this returns 0, i.e. no
-  // adjustment, matching the original assumption everywhere except right at the top.
+  // — Facebook's own top tab bar sits on top of the content and, right at the top of
+  // the feed, can occupy up to ~50-90px of screen space. A first attempt at this
+  // assumed the bar disappears (height/display collapses) once scrolled down at all,
+  // the same way nav_bar_watchdog.js's *stuck-hidden bug* does — but a fresh capture
+  // at scrollY≈1523 showed the bar still fully intact (display:flex, height:50,
+  // visibility:visible), just scrolled up off-screen (rect.top -1480, rect.bottom
+  // -1430) like any other normal in-flow content. Using rect.bottom unconditionally
+  // whenever height>0 (true almost everywhere, not just near the top) meant this
+  // returned a large *negative* number for virtually the entire feed — breaking
+  // next/prev everywhere except right at the very top, which is what was actually
+  // reported as "the buttons don't do anything" rather than just a top-of-feed edge
+  // case. Clamping to 0 fixes that: only when the bar's own bottom edge is still
+  // below the viewport's own top (i.e. it's genuinely covering something right now)
+  // does this return anything but 0.
   function contentTop() {
     var tablist = document.querySelector('[role="tablist"]');
     if (!tablist) return 0;
+    if (getComputedStyle(tablist).display === 'none') return 0;
     var rect = tablist.getBoundingClientRect();
-    return rect.height > 0 ? rect.bottom : 0;
+    return Math.max(0, rect.bottom);
   }
 
   function visiblePosts() {

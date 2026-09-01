@@ -17,16 +17,17 @@ private val INJECTED_ASSETS = listOf(
     "feed_display.js",
     "scroll_to_top.js",
     "post_nav.js",
+    "bookmarks_nav.js",
 )
 
 /**
  * Injects the feed-filtering (Feature 1), scroll-position (Feature 2), nav-bar
- * watchdog, tab-visibility, nav-bar override, feed-display, scroll-to-top and
- * post-nav scripts after every page load, keeps facebook.com navigation inside the
- * WebView, and routes everything else — an article link, a YouTube video, a shared
- * website — out to the user's own browser/app instead. tab_visibility.js runs before
- * nav_override.js so the freed-slot attribute it sets is already on the DOM by the
- * time nav_override.js's first sync() runs.
+ * watchdog, tab-visibility, nav-bar override, feed-display, scroll-to-top, post-nav
+ * and bookmarks-nav scripts after every page load, keeps facebook.com navigation
+ * inside the WebView, and routes everything else — an article link, a YouTube video,
+ * a shared website — out to the user's own browser/app instead. tab_visibility.js
+ * runs before nav_override.js so the freed-slot attribute it sets is already on the
+ * DOM by the time nav_override.js's first sync() runs.
  */
 class FbWebViewClient(
     private val onHistoryChanged: (WebView) -> Unit = {},
