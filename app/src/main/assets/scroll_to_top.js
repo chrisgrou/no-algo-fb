@@ -55,7 +55,9 @@
     button.style.alignItems = 'center';
     button.style.justifyContent = 'center';
     button.style.background = 'rgba(24,25,26,0.35)';
-    button.style.color = '#ffffff';
+    // Slightly yellow rather than plain white, matching post_nav.js's prev/next
+    // glyphs, so it stands out against the semi-transparent dark background.
+    button.style.color = '#ffd966';
     button.style.fontWeight = 'bold';
     button.style.lineHeight = '1';
     button.style.zIndex = '999999';

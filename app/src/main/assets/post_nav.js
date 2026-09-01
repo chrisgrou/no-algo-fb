@@ -130,7 +130,9 @@
     btn.style.alignItems = 'center';
     btn.style.justifyContent = 'center';
     btn.style.background = 'rgba(24,25,26,0.35)';
-    btn.style.color = '#ffffff';
+    // Slightly yellow rather than plain white, so the glyph itself stands out
+    // against the semi-transparent dark background instead of blending in.
+    btn.style.color = '#ffd966';
     btn.style.fontWeight = 'bold';
     btn.style.lineHeight = '1';
     btn.style.zIndex = '999999';
