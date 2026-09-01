@@ -87,24 +87,37 @@
   // i.e. 0. That clamp then fires a scroll event, which is how the saved offset used to
   // get overwritten with 0 as well, losing it for good.
   //
-  // So: hold the saver off, and keep re-asserting the pre-background offset until the
-  // rows stream back in far enough to reach it — the same "only jump once reachable
-  // covers the target" rule the cold-start restore below already follows, just repeated,
-  // since there's no telling which relayout the clamp lands on.
+  // A first on-device trace showed why passively waiting for reachable to catch up
+  // isn't enough: currentY was still 5525 (correct!) the instant this ran, but
+  // reachable was only 2 — nothing had streamed back in yet — so the "only jump once
+  // reachable covers the target" rule (right for the cold-start restore below, which
+  // must avoid landing on blank space past the loaded content) did nothing, and the
+  // browser's own clamp dragged scrollTop to 0 while this sat there waiting. Rows
+  // stream back in gradually, not all at once, so the fix is to actively track that
+  // climb: on every tick, pin scrollTop to whatever's the deepest position currently
+  // safe (min(target, reachable)) instead of only acting once reachable is already
+  // past target. That keeps the visible content pinned near the target throughout the
+  // reflow instead of leaving a window for the clamp to win.
   window.__ffwRestoreScroll = function () {
     var target = lastGoodY;
     log('resume: target=' + Math.round(target) + ' at=' + Math.round(currentY()) +
       ' reachable=' + Math.round(reachable()));
     if (target <= 50) return;
 
-    holdUntil = Date.now() + 4000;
+    holdUntil = Date.now() + 6000;
     (function reassert() {
       if (Date.now() >= holdUntil) {
         log('resume: settled at ' + Math.round(currentY()) + ' target=' + Math.round(target));
         return;
       }
-      if (reachable() >= target && Math.abs(currentY() - target) > 4) setY(target);
-      setTimeout(reassert, 250);
+      var safe = Math.min(target, reachable());
+      if (safe > 0 && Math.abs(currentY() - safe) > 4) setY(safe);
+      if (Math.abs(currentY() - target) <= 4) {
+        holdUntil = Date.now();
+        log('resume: reached target early at ' + Math.round(currentY()));
+        return;
+      }
+      setTimeout(reassert, 80);
     })();
   };
 
