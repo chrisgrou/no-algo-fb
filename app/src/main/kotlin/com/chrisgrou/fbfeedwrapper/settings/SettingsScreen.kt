@@ -262,6 +262,7 @@ fun DebugScreen(
 ) {
     val feedScopeEnabled by debugToggles.feedScopeEnabled.collectAsState()
     val scrollRestoreFixEnabled by debugToggles.scrollRestoreFixEnabled.collectAsState()
+    val resumeGuardEnabled by debugToggles.resumeGuardEnabled.collectAsState()
     val statsBannerEnabled by debugToggles.statsBannerEnabled.collectAsState()
     val debugButtonEnabled by debugToggles.debugButtonEnabled.collectAsState()
     val topBarModEnabled by debugToggles.topBarModEnabled.collectAsState()
@@ -335,6 +336,22 @@ fun DebugScreen(
                         Switch(
                             checked = feedScopeEnabled,
                             onCheckedChange = debugToggles::setFeedScopeEnabled,
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                ListItem(
+                    headlineContent = { Text("Διατήρηση feed μετά το παρασκήνιο") },
+                    supportingContent = {
+                        Text(
+                            "Κρύβει από το Facebook ότι η εφαρμογή πήγε στο παρασκήνιο, ώστε να " +
+                                "μην ανανεώνει το feed και να μη σε γυρνάει στην κορυφή όταν επιστρέφεις",
+                        )
+                    },
+                    trailingContent = {
+                        Switch(
+                            checked = resumeGuardEnabled,
+                            onCheckedChange = debugToggles::setResumeGuardEnabled,
                         )
                     },
                     modifier = Modifier.fillMaxWidth(),

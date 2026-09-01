@@ -96,6 +96,21 @@ const val DUMP_NAV_REPORT_JS = """
   lines.push('window.scrollY = ' + window.scrollY);
   lines.push('');
 
+  // resume_guard.js's record of what fired around backgrounding/resuming, and whether
+  // this page load was a reload. Together those separate "the WebView was thrown away
+  // and reloaded" from "the DOM survived but Facebook re-rendered the feed anyway" —
+  // the two need completely different fixes and look identical from the outside.
+  lines.push('===== RESUME LOG =====');
+  var rlog = window.__ffwResumeLog;
+  if (!rlog) {
+    lines.push('(resume_guard.js not installed)');
+  } else if (!rlog.length) {
+    lines.push('(empty)');
+  } else {
+    for (var r = 0; r < rlog.length; r++) lines.push('  ' + rlog[r]);
+  }
+  lines.push('');
+
   var tablists = document.querySelectorAll('[role="tablist"]');
   lines.push('[role="tablist"] COUNT: ' + tablists.length);
   for (var k = 0; k < tablists.length; k++) {

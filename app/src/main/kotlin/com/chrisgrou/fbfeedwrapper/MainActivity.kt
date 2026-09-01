@@ -89,6 +89,37 @@ class MainActivity : ComponentActivity() {
         outState.putBundle(WEBVIEW_STATE_KEY, state)
     }
 
+    // Freezing the page while we're backgrounded is the second half of "come back to
+    // the feed exactly where you left it" (resume_guard.js is the first): left running,
+    // Facebook's own polling keeps ticking off-screen and can re-fetch the feed out
+    // from under the user, so returning shows fresh content at the top even though the
+    // WebView was never recreated. Paused, its JS simply picks up mid-thought.
+    //
+    // Note these fire on real backgrounding only — moving between the feed and Settings
+    // is Compose navigation inside one Activity, which never reaches onPause.
+    override fun onPause() {
+        super.onPause()
+        webView?.onPause()
+        webView?.pauseTimers()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        webView?.onResume()
+        webView?.resumeTimers()
+    }
+
+    // The WebView now outlives every composition (see App()), so nothing else would
+    // ever release it — and it holds the whole rendered feed plus its JS heap.
+    override fun onDestroy() {
+        webView?.let { view ->
+            (view.parent as? ViewGroup)?.removeView(view)
+            view.destroy()
+        }
+        webView = null
+        super.onDestroy()
+    }
+
     // Held here (Activity-scoped), not in FbWebViewScreen's own composable state, so
     // it's still callable from the Debug menu inside Settings — a different screen,
     // where FbWebViewScreen (and any local WebView reference it held) isn't part of
@@ -137,13 +168,52 @@ private fun App(
     val displayPreferences = remember { FeedDisplayPreferences(context) }
     val tabPreferences = remember { TabPreferences(context) }
 
+    val filterBridge = remember { FeedFilterBridge() }
+    val scrollBridge = remember { ScrollPositionBridge(context) }
+    val navBridge = remember { NavigationBridge(onOpenSettings = { screen = Screen.Settings }) }
+    var canGoBack by remember { mutableStateOf(false) }
+    // Gates the debug stats banner below. Not canGoBack: this client evidently pushes
+    // "screens" (opening a post, its Replies, ...) via its own internal mechanism
+    // rather than always through the browser's URL/history APIs — an on-device
+    // capture showed WebView.canGoBack() getting stuck true after returning from a
+    // post. document.title changes reliably per screen ("Facebook" on the main feed,
+    // "Replies"/a post's own title elsewhere — see feed_filter.js's isFeedPage(),
+    // which hit the same problem with the URL and was fixed the same way), so track
+    // that instead via WebChromeClient.onReceivedTitle.
+    var isBaseFeed by remember { mutableStateOf(true) }
+
+    // Built once here, for as long as this Activity lives — deliberately not inside
+    // FbWebViewScreen's AndroidView factory, where it used to be. A factory lambda runs
+    // again every time its AndroidView re-enters composition, so opening Settings and
+    // coming back built a second WebView and loadUrl'd the feed from scratch (leaking
+    // the first, which nothing ever destroyed): the user lost their place for the same
+    // reason a backgrounded-and-recreated Activity loses it. One instance, reattached
+    // to whichever composition currently wants it, keeps the live DOM — scroll offset,
+    // loaded posts and all — across both.
+    val webView = remember {
+        createFeedWebView(
+            context = context,
+            restoredState = restoredState,
+            filterBridge = filterBridge,
+            scrollBridge = scrollBridge,
+            navBridge = navBridge,
+            debugToggles = debugToggles,
+            displayPreferences = displayPreferences,
+            tabPreferences = tabPreferences,
+            onHistoryChanged = { canGoBack = it.canGoBack() },
+            onBaseFeedChanged = { isBaseFeed = it },
+        )
+    }
+    LaunchedEffect(webView) { onWebViewCreated(webView) }
+
     when (screen) {
         Screen.Feed -> FbWebViewScreen(
-            restoredState = restoredState,
-            onWebViewCreated = onWebViewCreated,
-            onOpenSettings = { screen = Screen.Settings },
+            webView = webView,
+            canGoBack = canGoBack,
+            isBaseFeed = isBaseFeed,
             onDebugDump = onDebugDump,
             settingsViewModel = settingsViewModel,
+            filterBridge = filterBridge,
             debugToggles = debugToggles,
             displayPreferences = displayPreferences,
             tabPreferences = tabPreferences,
@@ -184,33 +254,84 @@ private fun App(
     }
 }
 
+/**
+ * Builds the single WebView the whole Activity shares. Split out of the composition so
+ * it can't accidentally be tied to one — see App()'s remember{} for why that mattered.
+ */
 @SuppressLint("SetJavaScriptEnabled")
+private fun createFeedWebView(
+    context: android.content.Context,
+    restoredState: Bundle?,
+    filterBridge: FeedFilterBridge,
+    scrollBridge: ScrollPositionBridge,
+    navBridge: NavigationBridge,
+    debugToggles: DebugToggles,
+    displayPreferences: FeedDisplayPreferences,
+    tabPreferences: TabPreferences,
+    onHistoryChanged: (WebView) -> Unit,
+    onBaseFeedChanged: (Boolean) -> Unit,
+): WebView {
+    // Lets `chrome://inspect` on a USB-connected desktop attach DevTools to this
+    // WebView's live, authenticated session — the only practical way to read
+    // m.facebook.com's real DOM and fix the feed_filter.js selectors.
+    if (BuildConfig.DEBUG) {
+        WebView.setWebContentsDebuggingEnabled(true)
+    }
+
+    return WebView(context).apply {
+        layoutParams = ViewGroup.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.MATCH_PARENT,
+        )
+
+        settings.javaScriptEnabled = true
+        settings.domStorageEnabled = true
+        settings.useWideViewPort = true
+        settings.loadWithOverviewMode = true
+
+        // Persistent session: cookies are never cleared on close, so the user stays
+        // logged in across app restarts.
+        val cookieManager = CookieManager.getInstance()
+        cookieManager.setAcceptCookie(true)
+        cookieManager.setAcceptThirdPartyCookies(this, true)
+
+        addJavascriptInterface(filterBridge, "NativeFilter")
+        addJavascriptInterface(scrollBridge, "NativeScroll")
+        addJavascriptInterface(debugToggles, "NativeFlags")
+        addJavascriptInterface(navBridge, "NativeNav")
+        addJavascriptInterface(displayPreferences, "NativeDisplay")
+        addJavascriptInterface(tabPreferences, "NativeTabs")
+        webViewClient = FbWebViewClient(onHistoryChanged = onHistoryChanged)
+        webChromeClient = object : WebChromeClient() {
+            // Title alone isn't enough — see feed_filter.js's isFeedPage() for why: a
+            // post's own permalink page (story.php) keeps the title "Facebook" too, so
+            // this also requires the path to still be the feed's own root.
+            override fun onReceivedTitle(view: WebView, title: String?) {
+                val path = runCatching { Uri.parse(view.url).path }.getOrNull()
+                onBaseFeedChanged(title == "Facebook" && (path == "/" || path.isNullOrEmpty()))
+            }
+        }
+
+        if (restoredState != null) {
+            restoreState(restoredState)
+        } else {
+            loadUrl(FEED_URL)
+        }
+    }
+}
+
 @Composable
 private fun FbWebViewScreen(
-    restoredState: Bundle?,
-    onWebViewCreated: (WebView) -> Unit,
-    onOpenSettings: () -> Unit,
+    webView: WebView,
+    canGoBack: Boolean,
+    isBaseFeed: Boolean,
     onDebugDump: () -> Unit,
     settingsViewModel: SettingsViewModel = viewModel(),
+    filterBridge: FeedFilterBridge,
     debugToggles: DebugToggles,
     displayPreferences: FeedDisplayPreferences,
     tabPreferences: TabPreferences,
 ) {
-    val context = LocalContext.current
-    val filterBridge = remember { FeedFilterBridge() }
-    val scrollBridge = remember { ScrollPositionBridge(context) }
-    val navBridge = remember { NavigationBridge(onOpenSettings = onOpenSettings) }
-    var webViewRef by remember { mutableStateOf<WebView?>(null) }
-    var canGoBack by remember { mutableStateOf(false) }
-    // Gates the debug stats banner below. Not canGoBack: this client evidently pushes
-    // "screens" (opening a post, its Replies, ...) via its own internal mechanism
-    // rather than always through the browser's URL/history APIs — an on-device
-    // capture showed WebView.canGoBack() getting stuck true after returning from a
-    // post. document.title changes reliably per screen ("Facebook" on the main feed,
-    // "Replies"/a post's own title elsewhere — see feed_filter.js's isFeedPage(),
-    // which hit the same problem with the URL and was fixed the same way), so track
-    // that instead via WebChromeClient.onReceivedTitle.
-    var isBaseFeed by remember { mutableStateOf(true) }
     val allowedPages by settingsViewModel.allowedPages.collectAsState()
     val filteringEnabled by displayPreferences.filteringEnabled.collectAsState()
     val filterStats by filterBridge.stats.collectAsState()
@@ -230,7 +351,7 @@ private fun FbWebViewScreen(
     // allowed-pages list, or flips the feature's own on/off toggle, in Settings.
     LaunchedEffect(allowedPages, filteringEnabled) {
         filterBridge.allowedAuthors = allowedPages
-        webViewRef?.evaluateJavascript(REFRESH_FILTER_JS, null)
+        webView.evaluateJavascript(REFRESH_FILTER_JS, null)
     }
 
     // Re-applies feed_display.js's hide/show state whenever the user flips a display
@@ -238,26 +359,26 @@ private fun FbWebViewScreen(
     // the feed from there, which is what actually picks up a change made while this
     // screen wasn't on screen to react to it live.
     LaunchedEffect(hideReactions, hideSuggested, hidePeopleYouMayKnow) {
-        webViewRef?.evaluateJavascript(REFRESH_DISPLAY_JS, null)
+        webView.evaluateJavascript(REFRESH_DISPLAY_JS, null)
     }
 
     // Re-applies tab_visibility.js's hide/show state and layout (and relocates the
     // Settings overlay to the newly freed slot) whenever the user checks/unchecks or
     // reorders a top-bar icon in Settings — same shape as the two effects above.
     LaunchedEffect(hiddenTabs, tabOrder, topBarModEnabled) {
-        webViewRef?.evaluateJavascript(REFRESH_TABS_JS, null)
+        webView.evaluateJavascript(REFRESH_TABS_JS, null)
     }
 
     // Re-applies the return-to-top button's on/off preference the same way. Both
     // floating buttons also read their own size fresh from the same preference on
     // every update() pass, so a size change picks this up too without its own effect.
     LaunchedEffect(showScrollTopButton, buttonSize) {
-        webViewRef?.evaluateJavascript(REFRESH_SCROLL_TOP_JS, null)
+        webView.evaluateJavascript(REFRESH_SCROLL_TOP_JS, null)
     }
 
     // Re-applies the previous/next-post buttons' on/off preference the same way.
     LaunchedEffect(showPostNavButtons, buttonSize) {
-        webViewRef?.evaluateJavascript(REFRESH_POST_NAV_JS, null)
+        webView.evaluateJavascript(REFRESH_POST_NAV_JS, null)
     }
 
     // Without this, the system back gesture has nothing registered to intercept it, so
@@ -265,67 +386,17 @@ private fun FbWebViewScreen(
     // through the page the user was just on — opening a post, going back, and getting
     // dumped on the Android home screen instead of the feed.
     BackHandler(enabled = canGoBack) {
-        webViewRef?.goBack()
+        webView.goBack()
     }
 
     Box(Modifier.fillMaxSize()) {
         AndroidView(
             modifier = Modifier.fillMaxSize(),
-            factory = { context ->
-                // Lets `chrome://inspect` on a USB-connected desktop attach DevTools to
-                // this WebView's live, authenticated session — the only practical way to
-                // read m.facebook.com's real DOM and fix the feed_filter.js selectors.
-                if (BuildConfig.DEBUG) {
-                    WebView.setWebContentsDebuggingEnabled(true)
-                }
-
-                WebView(context).apply {
-                    layoutParams = ViewGroup.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT,
-                        ViewGroup.LayoutParams.MATCH_PARENT,
-                    )
-
-                    settings.javaScriptEnabled = true
-                    settings.domStorageEnabled = true
-                    settings.useWideViewPort = true
-                    settings.loadWithOverviewMode = true
-
-                    // Persistent session: cookies are never cleared on close, so the
-                    // user stays logged in across app restarts.
-                    val cookieManager = CookieManager.getInstance()
-                    cookieManager.setAcceptCookie(true)
-                    cookieManager.setAcceptThirdPartyCookies(this, true)
-
-                    addJavascriptInterface(filterBridge, "NativeFilter")
-                    addJavascriptInterface(scrollBridge, "NativeScroll")
-                    addJavascriptInterface(debugToggles, "NativeFlags")
-                    addJavascriptInterface(navBridge, "NativeNav")
-                    addJavascriptInterface(displayPreferences, "NativeDisplay")
-                    addJavascriptInterface(tabPreferences, "NativeTabs")
-                    webViewClient = FbWebViewClient(onHistoryChanged = { view ->
-                        canGoBack = view.canGoBack()
-                    })
-                    webChromeClient = object : WebChromeClient() {
-                        // Title alone isn't enough — see feed_filter.js's isFeedPage()
-                        // for why: a post's own permalink page (story.php) keeps the
-                        // title "Facebook" too, so this also requires the path to
-                        // still be the feed's own root.
-                        override fun onReceivedTitle(view: WebView, title: String?) {
-                            val path = runCatching { Uri.parse(view.url).path }.getOrNull()
-                            isBaseFeed = title == "Facebook" && (path == "/" || path.isNullOrEmpty())
-                        }
-                    }
-
-                    onWebViewCreated(this)
-                    webViewRef = this
-
-                    if (restoredState != null) {
-                        restoreState(restoredState)
-                    } else {
-                        loadUrl(FEED_URL)
-                    }
-                }
-            },
+            // Hands back the Activity's existing WebView rather than building one. It
+            // may still be attached to the holder of a previous composition (Compose
+            // detaches the holder, not the child), and a View can only have one parent,
+            // so unhook it first.
+            factory = { webView.also { view -> (view.parent as? ViewGroup)?.removeView(view) } },
         )
 
         // The floating Settings icon moved out (reachable via nav_override.js's

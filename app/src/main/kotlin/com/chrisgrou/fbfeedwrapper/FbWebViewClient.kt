@@ -9,6 +9,9 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 
 private val INJECTED_ASSETS = listOf(
+    // First: the sooner it pins document.hidden and gets its listeners in, the smaller
+    // the window in which Facebook could still see a visibility change.
+    "resume_guard.js",
     "feed_filter.js",
     "scroll_position.js",
     "nav_bar_watchdog.js",
@@ -21,9 +24,9 @@ private val INJECTED_ASSETS = listOf(
 )
 
 /**
- * Injects the feed-filtering (Feature 1), scroll-position (Feature 2), nav-bar
- * watchdog, tab-visibility, nav-bar override, feed-display, scroll-to-top, post-nav
- * and bookmarks-nav scripts after every page load, keeps facebook.com navigation
+ * Injects the resume-guard, feed-filtering (Feature 1), scroll-position (Feature 2),
+ * nav-bar watchdog, tab-visibility, nav-bar override, feed-display, scroll-to-top,
+ * post-nav and bookmarks-nav scripts after every page load, keeps facebook.com navigation
  * inside the WebView, and routes everything else — an article link, a YouTube video,
  * a shared website — out to the user's own browser/app instead. tab_visibility.js
  * runs before nav_override.js so the freed-slot attribute it sets is already on the

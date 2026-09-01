@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.asStateFlow
 private const val PREFS_NAME = "debug_toggles"
 private const val KEY_FEED_SCOPE = "feed_scope_enabled"
 private const val KEY_SCROLL_RESTORE_FIX = "scroll_restore_fix_enabled"
+private const val KEY_RESUME_GUARD = "resume_guard_enabled"
 private const val KEY_STATS_BANNER = "stats_banner_enabled"
 private const val KEY_DEBUG_BUTTON = "debug_button_enabled"
 private const val KEY_TOP_BAR_MOD = "top_bar_mod_enabled"
@@ -32,6 +33,9 @@ class DebugToggles(context: Context) {
 
     private val _scrollRestoreFixEnabled = MutableStateFlow(prefs.getBoolean(KEY_SCROLL_RESTORE_FIX, true))
     val scrollRestoreFixEnabled: StateFlow<Boolean> = _scrollRestoreFixEnabled.asStateFlow()
+
+    private val _resumeGuardEnabled = MutableStateFlow(prefs.getBoolean(KEY_RESUME_GUARD, true))
+    val resumeGuardEnabled: StateFlow<Boolean> = _resumeGuardEnabled.asStateFlow()
 
     // Compose-only (no JS bridge involved), unlike the others.
     private val _statsBannerEnabled = MutableStateFlow(prefs.getBoolean(KEY_STATS_BANNER, true))
@@ -57,6 +61,11 @@ class DebugToggles(context: Context) {
         _scrollRestoreFixEnabled.value = enabled
     }
 
+    fun setResumeGuardEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_RESUME_GUARD, enabled).apply()
+        _resumeGuardEnabled.value = enabled
+    }
+
     fun setStatsBannerEnabled(enabled: Boolean) {
         prefs.edit().putBoolean(KEY_STATS_BANNER, enabled).apply()
         _statsBannerEnabled.value = enabled
@@ -77,6 +86,9 @@ class DebugToggles(context: Context) {
 
     @JavascriptInterface
     fun getScrollRestoreFixEnabled(): Boolean = prefs.getBoolean(KEY_SCROLL_RESTORE_FIX, true)
+
+    @JavascriptInterface
+    fun getResumeGuardEnabled(): Boolean = prefs.getBoolean(KEY_RESUME_GUARD, true)
 
     @JavascriptInterface
     fun getTopBarModEnabled(): Boolean = prefs.getBoolean(KEY_TOP_BAR_MOD, false)

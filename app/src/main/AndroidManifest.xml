@@ -12,11 +12,19 @@
         android:label="@string/app_name"
         android:theme="@style/Theme.FbFeedWrapper">
 
+        <!-- configChanges lists every config change we can possibly handle ourselves,
+             not just rotation: an unlisted one destroys and recreates the Activity, and
+             a recreated Activity means a new WebView reloading the feed from scratch —
+             the user lands back at the top on fresh content. uiMode is the one that
+             actually bites in normal use (the system flipping to night mode while the
+             app sits in the background), with density/fontScale/locale close behind.
+             Nothing here reads a configuration-dependent resource that would need the
+             recreation, so handling them all is safe. -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTask"
-            android:configChanges="orientation|screenSize|keyboardHidden|screenLayout"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|keyboard|navigation|touchscreen|uiMode|density|fontScale|locale|layoutDirection"
             android:theme="@style/Theme.FbFeedWrapper">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
