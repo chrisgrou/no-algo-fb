@@ -60,9 +60,16 @@
   // The offset we believe the user actually chose, as opposed to whatever the browser
   // currently reports. They diverge on resume — see restoreAfterResume() below.
   var lastGoodY = 0;
-  // While set, incoming scroll events are neither trusted nor saved: they're the
-  // page settling itself, not the user moving.
-  var holdUntil = 0;
+  // While in the future, incoming scroll events are neither trusted nor saved: they're
+  // the page settling itself after a resume, not the user moving — and it's also what
+  // the long delayed-reset watch below checks to know a touch cancelled it, so it spans
+  // that whole watch (tens of seconds), not just the tight correction loop's own much
+  // shorter window (see tightUntil).
+  var guardUntil = 0;
+  // The tight per-80ms correction loop's own, much shorter budget — separate from
+  // guardUntil so a resume that needed no correction doesn't run 80ms ticks for the
+  // full length of the delayed-reset watch too.
+  var tightUntil = 0;
 
   var saveTimer = null;
   function scheduleSave() {
@@ -77,7 +84,7 @@
   // 'scroll' doesn't bubble, but a capturing listener on window still sees it on the
   // way down to the actual target.
   window.addEventListener('scroll', function () {
-    if (Date.now() < holdUntil) return;
+    if (Date.now() < guardUntil) return;
     lastGoodY = currentY();
     scheduleSave();
   }, { passive: true, capture: true });
@@ -85,8 +92,9 @@
   // A real finger on the screen ends any restore in progress: past that point the user
   // is choosing where to be, and fighting them would be worse than losing the offset.
   window.addEventListener('touchstart', function () {
-    if (Date.now() < holdUntil) {
-      holdUntil = 0;
+    if (Date.now() < guardUntil) {
+      guardUntil = 0;
+      tightUntil = 0;
       log('restore cancelled by touch at ' + Math.round(currentY()));
     }
   }, { passive: true, capture: true });
@@ -129,13 +137,47 @@
       ' isScrollingElement=' + (sc === document.scrollingElement) + ' windowScrollY=' + Math.round(window.scrollY);
   }
 
+  // Runs after the tight reassert loop below is done (whether it had to correct
+  // anything or not), and covers a much longer stretch: an on-device trace showed the
+  // feed reset to scrollY=0 a full 25s after a resume the tight loop had already
+  // confirmed correct, with none of resume_guard.js's visibility events logged in that
+  // gap. That's outside any window a quick post-resume correction was ever going to
+  // cover, and points at something async — most likely a GraphQL refetch queued while
+  // backgrounded that only completes once timers resume — rather than the clamp this
+  // file was originally written against. So: keep comparing against the target for a
+  // full WATCH_MS, correct any drift found (logging it, since a correction here means
+  // the earlier "settled"/"already at target" call was wrong and something moved it
+  // after the fact), and ask resume_guard.js to log network activity for the same
+  // window so a next capture can name what's actually responsible.
+  var WATCH_MS = 25000;
+  var WATCH_INTERVAL_MS = 1000;
+
+  function watchForDelayedReset(target) {
+    // guardUntil, not a separate deadline: touchstart above zeroes it the instant the
+    // user actually touches the screen, which is how this loop notices and steps aside
+    // (checked every tick, not just once, since the natural expiry and a touch
+    // cancellation both end up here — the guard simply stops being in the future).
+    if (Date.now() >= guardUntil) return;
+    var y = currentY();
+    if (Math.abs(y - target) > 100) {
+      log('resume: delayed reset detected — at=' + Math.round(y) + ' target=' + Math.round(target) +
+        ' reachable=' + Math.round(reachable()) + ' | ' + scrollerDebug());
+      var safe = Math.min(target, reachable());
+      if (safe > 0) setY(safe);
+      log('resume: corrected to ' + Math.round(currentY()));
+    }
+    setTimeout(function () { watchForDelayedReset(target); }, WATCH_INTERVAL_MS);
+  }
+
   window.__ffwRestoreScroll = function () {
     var target = lastGoodY;
     log('resume: target=' + Math.round(target) + ' at=' + Math.round(currentY()) +
       ' reachable=' + Math.round(reachable()) + ' | ' + scrollerDebug());
     if (target <= 50) return;
 
-    holdUntil = Date.now() + 6000;
+    if (window.__ffwWatchNetwork) window.__ffwWatchNetwork(WATCH_MS);
+    guardUntil = Date.now() + WATCH_MS;
+    tightUntil = Date.now() + 6000;
     var tick = 0;
     (function reassert() {
       tick++;
@@ -145,13 +187,14 @@
       // target dragged a perfectly good position down anyway. Nothing to fix if
       // there's nothing wrong — leave it alone rather than risk moving it.
       if (Math.abs(currentY() - target) <= 4) {
-        holdUntil = Date.now();
         log('resume: already at target (' + Math.round(currentY()) + '), nothing to do');
+        watchForDelayedReset(target);
         return;
       }
-      if (Date.now() >= holdUntil) {
+      if (Date.now() >= tightUntil || Date.now() >= guardUntil) {
         log('resume: settled at ' + Math.round(currentY()) + ' target=' + Math.round(target) +
           ' | ' + scrollerDebug());
+        watchForDelayedReset(target);
         return;
       }
       var safe = Math.min(target, reachable());
