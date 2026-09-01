@@ -249,6 +249,7 @@ fun DebugScreen(
     val scrollRestoreFixEnabled by debugToggles.scrollRestoreFixEnabled.collectAsState()
     val statsBannerEnabled by debugToggles.statsBannerEnabled.collectAsState()
     val debugButtonEnabled by debugToggles.debugButtonEnabled.collectAsState()
+    val topBarModEnabled by debugToggles.topBarModEnabled.collectAsState()
 
     BackHandler(onBack = onBack)
 
@@ -292,6 +293,22 @@ fun DebugScreen(
                     "Toggles δοκιμής",
                     style = MaterialTheme.typography.labelMedium,
                     modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 4.dp),
+                )
+                ListItem(
+                    headlineContent = { Text("Τροποποίηση πάνω μπάρας") },
+                    supportingContent = {
+                        Text(
+                            "Δικό μας εικονίδιο Ρυθμίσεων + κρύψιμο/σειρά εικονιδίων στη μπάρα " +
+                                "του Facebook. Απενεργοποιημένο από προεπιλογή — ακόμα σε δοκιμή.",
+                        )
+                    },
+                    trailingContent = {
+                        Switch(
+                            checked = topBarModEnabled,
+                            onCheckedChange = debugToggles::setTopBarModEnabled,
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth(),
                 )
                 ListItem(
                     headlineContent = { Text("Φιλτράρισμα μόνο στο βασικό feed") },

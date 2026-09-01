@@ -219,6 +219,7 @@ private fun FbWebViewScreen(
     val showPostNavButtons by displayPreferences.showPostNavButtons.collectAsState()
     val hiddenTabs by tabPreferences.hiddenTabs.collectAsState()
     val tabOrder by tabPreferences.tabOrder.collectAsState()
+    val topBarModEnabled by debugToggles.topBarModEnabled.collectAsState()
 
     // Re-applies the filter in the already-loaded page whenever the user
     // edits the allowed-pages list in Settings.
@@ -238,7 +239,7 @@ private fun FbWebViewScreen(
     // Re-applies tab_visibility.js's hide/show state and layout (and relocates the
     // Settings overlay to the newly freed slot) whenever the user checks/unchecks or
     // reorders a top-bar icon in Settings — same shape as the two effects above.
-    LaunchedEffect(hiddenTabs, tabOrder) {
+    LaunchedEffect(hiddenTabs, tabOrder, topBarModEnabled) {
         webViewRef?.evaluateJavascript(REFRESH_TABS_JS, null)
     }
 

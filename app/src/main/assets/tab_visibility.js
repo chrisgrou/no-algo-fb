@@ -8,6 +8,8 @@
   window.__ffwTabVisibilityInstalled = true;
 
   var HIDDEN_ATTR = 'data-ffw-tab-hidden';
+  var ORIG_WIDTH_ATTR = 'data-ffw-tab-orig-width';
+  var ORIG_MARGIN_ATTR = 'data-ffw-tab-orig-margin';
   // Stands in for our own Settings icon wherever it sits in the order — not a real
   // Facebook tab, so it never matches a DOM element. relayout() below reserves it a
   // slot in the layout math the same as any real tab; nav_override.js then reads that
@@ -45,6 +47,40 @@
       window.NativeTabs && window.NativeTabs.reportTabs(JSON.stringify(list));
     } catch (e) {
       // No bridge (e.g. loaded outside the app) — nothing to report to.
+    }
+  }
+
+  // Kill switch (Settings → Debug → "Τροποποίηση πάνω μπάρας"), off by default — this
+  // whole feature (hide/reorder native tabs, our own Settings icon) is still rough,
+  // and turning it off should fully undo whatever it's currently done rather than just
+  // stop applying further changes. Doesn't gate nav_bar_watchdog.js, which fixes a
+  // separate, unrelated Facebook bug (the bar getting stuck hidden).
+  function topBarModEnabled() {
+    try {
+      return !!(window.NativeFlags && window.NativeFlags.getTopBarModEnabled());
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // Captured once per tab, the first time this script ever sees it — before anything
+  // here has had a chance to touch its width/margin-left — so disabling the feature
+  // later can put Facebook's own numbers back exactly, not just stop overriding them.
+  function rememberOriginals(els) {
+    for (var i = 0; i < els.length; i++) {
+      var t = els[i];
+      if (!t.hasAttribute(ORIG_WIDTH_ATTR)) {
+        t.setAttribute(ORIG_WIDTH_ATTR, t.style.width || '');
+        t.setAttribute(ORIG_MARGIN_ATTR, t.style.marginLeft || '');
+      }
+    }
+  }
+
+  function restoreNative(els) {
+    for (var i = 0; i < els.length; i++) {
+      els[i].style.width = els[i].getAttribute(ORIG_WIDTH_ATTR) || '';
+      els[i].style.marginLeft = els[i].getAttribute(ORIG_MARGIN_ATTR) || '';
+      els[i].removeAttribute(HIDDEN_ATTR);
     }
   }
 
@@ -160,18 +196,31 @@
   function apply() {
     var els = tabs();
     if (!els.length) return;
-    var tablist = document.querySelector('[role="tablist"]');
+    rememberOriginals(els);
+
     var labels = [];
+    for (var i = 0; i < els.length; i++) {
+      var label = labelOf(els[i]);
+      if (label) labels.push(label);
+    }
+    reportDiscovered(labels);
+
+    if (!topBarModEnabled()) {
+      restoreNative(els);
+      window.__ffwSettingsSlotFrac = null;
+      window.__ffwSyncNavOverlay && window.__ffwSyncNavOverlay();
+      return;
+    }
+
+    var tablist = document.querySelector('[role="tablist"]');
     var hidden = hiddenSet();
     for (var i = 0; i < els.length; i++) {
       var label = labelOf(els[i]);
       if (!label) continue;
-      labels.push(label);
       if (hidden[label]) els[i].setAttribute(HIDDEN_ATTR, '1');
       else els[i].removeAttribute(HIDDEN_ATTR);
     }
     if (tablist) relayout(tablist, els, combinedOrder(els), hidden);
-    reportDiscovered(labels);
     // nav_override.js positions its Settings overlay from window.__ffwSettingsSlotFrac,
     // which this just updated — re-sync it now rather than waiting for its own next
     // scroll/resize/observer tick, so toggling or reordering in Settings relocates the
