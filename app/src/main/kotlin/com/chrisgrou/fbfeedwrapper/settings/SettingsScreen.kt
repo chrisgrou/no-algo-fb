@@ -20,6 +20,7 @@ import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.Groups
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.Tab
@@ -130,15 +131,17 @@ fun SettingsScreen(
  * Every optional, non-core-filtering extra lands here: the allow-list itself (its own
  * sub-screen, since it can grow arbitrarily long and isn't a fixed-size setting),
  * hide-reactions, hide-suggested, the floating return-to-top/prev-next buttons and
- * their shared size slider. The top-bar icon picker lives in Debug instead, next to
- * the toggle that turns the feature it configures on and off — it's still rough
- * enough that it doesn't belong alongside settled features like these.
+ * their shared size slider, and the post-history log (its own sub-screen too — see
+ * HistoryScreen). The top-bar icon picker lives in Debug instead, next to the toggle
+ * that turns the feature it configures on and off — it's still rough enough that it
+ * doesn't belong alongside settled features like these.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun EnhancementsScreen(
     onBack: () -> Unit,
     onOpenAllowedSources: () -> Unit,
+    onOpenHistory: () -> Unit,
     displayPreferences: FeedDisplayPreferences,
 ) {
     val hideReactions by displayPreferences.hideReactions.collectAsState()
@@ -239,6 +242,13 @@ fun EnhancementsScreen(
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),
+                )
+                ListItem(
+                    headlineContent = { Text("Ιστορικό posts") },
+                    supportingContent = { Text("Τι έβλεπες πριν η εφαρμογή πάει στο παρασκήνιο") },
+                    leadingContent = { Icon(Icons.Filled.History, contentDescription = null) },
+                    trailingContent = { Icon(Icons.Filled.ChevronRight, contentDescription = null) },
+                    modifier = Modifier.fillMaxWidth().clickable(onClick = onOpenHistory),
                 )
             }
         }

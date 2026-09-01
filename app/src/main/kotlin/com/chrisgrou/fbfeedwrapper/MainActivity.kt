@@ -41,6 +41,8 @@ import com.chrisgrou.fbfeedwrapper.debug.DUMP_NAV_REPORT_JS
 import com.chrisgrou.fbfeedwrapper.debug.DUMP_VIEWPORT_HTML_JS
 import com.chrisgrou.fbfeedwrapper.debug.shareHtmlDump
 import com.chrisgrou.fbfeedwrapper.filter.FeedFilterBridge
+import com.chrisgrou.fbfeedwrapper.history.HistoryScreen
+import com.chrisgrou.fbfeedwrapper.history.PostHistoryPreferences
 import com.chrisgrou.fbfeedwrapper.nav.NavigationBridge
 import com.chrisgrou.fbfeedwrapper.scroll.ScrollPositionBridge
 import com.chrisgrou.fbfeedwrapper.settings.AllowedSourcesScreen
@@ -63,6 +65,8 @@ private const val REFRESH_DISPLAY_JS = "window.__ffwRefreshDisplay && window.__f
 private const val REFRESH_TABS_JS = "window.__ffwRefreshTabs && window.__ffwRefreshTabs();"
 private const val REFRESH_SCROLL_TOP_JS = "window.__ffwRefreshScrollTop && window.__ffwRefreshScrollTop();"
 private const val REFRESH_POST_NAV_JS = "window.__ffwRefreshPostNav && window.__ffwRefreshPostNav();"
+private const val CAPTURE_HISTORY_JS = "window.__ffwCaptureHistory && window.__ffwCaptureHistory();"
+private const val SEARCH_URL_PREFIX = "https://m.facebook.com/search/top/?q="
 
 class MainActivity : ComponentActivity() {
 
@@ -99,6 +103,11 @@ class MainActivity : ComponentActivity() {
     // is Compose navigation inside one Activity, which never reaches onPause.
     override fun onPause() {
         super.onPause()
+        // Before anything is paused: records the topmost visible post (see
+        // post_history.js) so Settings → Ιστορικό has a "what was I looking at" entry
+        // for this backgrounding to show, even though scroll position itself isn't
+        // recoverable (see scroll_position.js's own comment on why that was abandoned).
+        webView?.evaluateJavascript(CAPTURE_HISTORY_JS, null)
         webView?.onPause()
         webView?.pauseTimers()
     }
@@ -150,7 +159,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private enum class Screen { Feed, Settings, Sync, AllowedSources, Debug, TabIcons, Enhancements }
+private enum class Screen { Feed, Settings, Sync, AllowedSources, Debug, TabIcons, Enhancements, History }
 
 @Composable
 private fun App(
@@ -167,6 +176,7 @@ private fun App(
     val debugToggles = remember { DebugToggles(context) }
     val displayPreferences = remember { FeedDisplayPreferences(context) }
     val tabPreferences = remember { TabPreferences(context) }
+    val historyPreferences = remember { PostHistoryPreferences(context) }
 
     val filterBridge = remember { FeedFilterBridge() }
     val scrollBridge = remember { ScrollPositionBridge(context) }
@@ -200,6 +210,7 @@ private fun App(
             debugToggles = debugToggles,
             displayPreferences = displayPreferences,
             tabPreferences = tabPreferences,
+            historyPreferences = historyPreferences,
             onHistoryChanged = { canGoBack = it.canGoBack() },
             onBaseFeedChanged = { isBaseFeed = it },
         )
@@ -249,7 +260,20 @@ private fun App(
         Screen.Enhancements -> EnhancementsScreen(
             onBack = { screen = Screen.Settings },
             onOpenAllowedSources = { screen = Screen.AllowedSources },
+            onOpenHistory = { screen = Screen.History },
             displayPreferences = displayPreferences,
+        )
+        Screen.History -> HistoryScreen(
+            onBack = { screen = Screen.Enhancements },
+            historyPreferences = historyPreferences,
+            // No real permalink is ever available (see PostHistoryPreferences' own
+            // comment on why) — a Facebook search for the source's name is the closest
+            // this can get the user back, so this leaves Settings and drops straight
+            // into the feed screen showing that search's results.
+            onOpenSearch = { query ->
+                webView.loadUrl(SEARCH_URL_PREFIX + Uri.encode(query))
+                screen = Screen.Feed
+            },
         )
     }
 }
@@ -268,6 +292,7 @@ private fun createFeedWebView(
     debugToggles: DebugToggles,
     displayPreferences: FeedDisplayPreferences,
     tabPreferences: TabPreferences,
+    historyPreferences: PostHistoryPreferences,
     onHistoryChanged: (WebView) -> Unit,
     onBaseFeedChanged: (Boolean) -> Unit,
 ): WebView {
@@ -301,6 +326,7 @@ private fun createFeedWebView(
         addJavascriptInterface(navBridge, "NativeNav")
         addJavascriptInterface(displayPreferences, "NativeDisplay")
         addJavascriptInterface(tabPreferences, "NativeTabs")
+        addJavascriptInterface(historyPreferences, "NativeHistory")
         webViewClient = FbWebViewClient(onHistoryChanged = onHistoryChanged)
         webChromeClient = object : WebChromeClient() {
             // Title alone isn't enough — see feed_filter.js's isFeedPage() for why: a
