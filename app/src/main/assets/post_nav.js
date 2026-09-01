@@ -1,11 +1,12 @@
-// Floating "previous / next post" buttons, bottom-left (Feature: post navigation).
+// Floating "previous / next post" buttons, bottom-right (Feature: post navigation).
 // Jumps to whichever visible post — the same [data-tracking-duration-id] cards
 // feed_filter.js already scans, skipping nested (shared/quoted) and hidden ones the
 // same way that script does — sits just above or below the current one, aligning its
 // own top edge with the top of the scroller. Purely additive, never touches
 // Facebook's own DOM: an independent pair of elements of our own painted on top, same
 // approach as scroll_to_top.js/nav_override.js. Togglable from Settings → Βελτιώσεις
-// (see FeedDisplayPreferences.showPostNavButtons).
+// (see FeedDisplayPreferences.showPostNavButtons), and only ever shown on the main
+// feed — see isFeedPage() below.
 (function () {
   if (window.__ffwPostNavInstalled) return;
   window.__ffwPostNavInstalled = true;
@@ -13,6 +14,15 @@
   var POST_SELECTOR = '[data-tracking-duration-id]';
   var HIDDEN_ATTR = 'data-ffw-hidden';
   var EDGE_THRESHOLD = 8;
+
+  // Same signal feed_filter.js's isFeedPage() and MainActivity's isBaseFeed already
+  // use — document.title is "Facebook" on the main feed and something else (a post's
+  // own title, "Replies", ...) everywhere else, unlike the URL, which this WebLitePipe
+  // client doesn't reliably change for in-app screen navigation. These buttons only
+  // make sense scrolling through the feed itself, not inside a post someone opened.
+  function isFeedPage() {
+    return document.title === 'Facebook';
+  }
 
   function scroller() {
     return document.querySelector('[data-type="vscroller"]') || document.scrollingElement || document.body;
@@ -98,27 +108,27 @@
   var prevButton = null;
   var nextButton = null;
 
-  function makeButton(id, label, ariaLabel, left) {
+  function makeButton(id, label, ariaLabel, right) {
     var btn = document.createElement('div');
     btn.id = id;
     btn.setAttribute('role', 'button');
     btn.setAttribute('aria-label', ariaLabel);
     btn.style.position = 'fixed';
-    btn.style.left = left;
+    btn.style.right = right;
     btn.style.bottom = '16px';
-    btn.style.width = '44px';
-    btn.style.height = '44px';
+    btn.style.width = '52px';
+    btn.style.height = '52px';
     btn.style.borderRadius = '50%';
     btn.style.display = 'none';
     btn.style.alignItems = 'center';
     btn.style.justifyContent = 'center';
-    btn.style.background = 'rgba(24,25,26,0.45)';
+    btn.style.background = 'rgba(24,25,26,0.35)';
     btn.style.color = '#ffffff';
-    btn.style.fontSize = '20px';
+    btn.style.fontSize = '24px';
     btn.style.fontWeight = 'bold';
     btn.style.lineHeight = '1';
     btn.style.zIndex = '999999';
-    btn.style.boxShadow = '0 2px 6px rgba(0,0,0,0.25)';
+    btn.style.boxShadow = '0 2px 6px rgba(0,0,0,0.2)';
     btn.textContent = label;
     document.body.appendChild(btn);
     return btn;
@@ -126,7 +136,9 @@
 
   function ensureButtons() {
     if (!prevButton) {
-      prevButton = makeButton('__ffwPrevPostButton', '‹', 'Προηγούμενο post', '16px');
+      // 76px = nextButton's right (16) + its width (52) + an 8px gap — prev sits
+      // further from the edge, next closest to it.
+      prevButton = makeButton('__ffwPrevPostButton', '‹', 'Προηγούμενο post', '76px');
       prevButton.addEventListener('click', function (e) {
         e.preventDefault();
         e.stopPropagation();
@@ -135,8 +147,7 @@
       });
     }
     if (!nextButton) {
-      // 68px = prevButton's left (16) + its width (44) + an 8px gap.
-      nextButton = makeButton('__ffwNextPostButton', '›', 'Επόμενο post', '68px');
+      nextButton = makeButton('__ffwNextPostButton', '›', 'Επόμενο post', '16px');
       nextButton.addEventListener('click', function (e) {
         e.preventDefault();
         e.stopPropagation();
@@ -156,7 +167,7 @@
 
   function update() {
     ensureButtons();
-    var on = enabled();
+    var on = isFeedPage() && enabled();
     prevButton.style.display = on && prevPost() ? 'flex' : 'none';
     nextButton.style.display = on && nextPost() ? 'flex' : 'none';
   }
@@ -190,4 +201,10 @@
     }, 200);
   });
   observer.observe(document.body, { childList: true, subtree: true });
+
+  // document.title changes when opening/leaving a post, but that isn't a scroll or a
+  // DOM mutation this script would otherwise see — a lightweight poll is simpler and
+  // cheaper here than wiring a MutationObserver onto <title> for something that only
+  // needs to be noticed within a second or so of it happening.
+  setInterval(update, 500);
 })();

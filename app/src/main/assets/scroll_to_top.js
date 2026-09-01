@@ -1,7 +1,8 @@
-// Floating "back to top" button, bottom-right (Feature: scroll to top). Shown once
-// the user has scrolled down meaningfully, hidden near the top — purely additive,
-// same approach as nav_override.js's overlay: an independent element of our own,
-// never a mutation of Facebook's own DOM. Togglable from Settings → Βελτιώσεις (see
+// Floating "back to top" button, bottom-center (Feature: scroll to top). Shown once
+// the user has scrolled down meaningfully on the main feed, hidden near the top and
+// on any other screen (a post, Replies, ...) — purely additive, same approach as
+// nav_override.js's overlay: an independent element of our own, never a mutation of
+// Facebook's own DOM. Togglable from Settings → Βελτιώσεις (see
 // FeedDisplayPreferences.showScrollTopButton), same on/off-in-Settings shape as the
 // hide-reactions/hide-suggested toggles in feed_display.js.
 (function () {
@@ -9,7 +10,6 @@
   window.__ffwScrollTopInstalled = true;
 
   var SHOW_THRESHOLD = 600;
-  var UP_ARROW_SVG_PATH = 'M12 4l-8 8h5v8h6v-8h5z';
 
   function scroller() {
     return document.querySelector('[data-type="vscroller"]') || document.scrollingElement || document.body;
@@ -18,6 +18,14 @@
   function currentY() {
     var sc = scroller();
     return sc.scrollTop || window.scrollY || 0;
+  }
+
+  // Same signal feed_filter.js's isFeedPage() and MainActivity's isBaseFeed already
+  // use — document.title is "Facebook" on the main feed and something else (a post's
+  // own title, "Replies", ...) everywhere else, unlike the URL, which this WebLitePipe
+  // client doesn't reliably change for in-app screen navigation.
+  function isFeedPage() {
+    return document.title === 'Facebook';
   }
 
   var button = null;
@@ -29,28 +37,30 @@
     button.setAttribute('role', 'button');
     button.setAttribute('aria-label', 'Επιστροφή στην κορυφή');
     button.style.position = 'fixed';
-    button.style.right = '16px';
+    button.style.left = '50%';
     button.style.bottom = '16px';
-    button.style.width = '44px';
-    button.style.height = '44px';
+    button.style.transform = 'translateX(-50%)';
+    button.style.width = '52px';
+    button.style.height = '52px';
     button.style.borderRadius = '50%';
     button.style.display = 'none';
     button.style.alignItems = 'center';
     button.style.justifyContent = 'center';
-    button.style.background = 'rgba(24,25,26,0.45)';
+    button.style.background = 'rgba(24,25,26,0.35)';
     button.style.color = '#ffffff';
+    button.style.fontSize = '24px';
+    button.style.fontWeight = 'bold';
+    button.style.lineHeight = '1';
     button.style.zIndex = '999999';
-    button.style.boxShadow = '0 2px 6px rgba(0,0,0,0.25)';
+    button.style.boxShadow = '0 2px 6px rgba(0,0,0,0.2)';
 
-    var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    svg.setAttribute('viewBox', '0 0 24 24');
-    svg.setAttribute('width', '24');
-    svg.setAttribute('height', '24');
-    svg.style.fill = 'currentColor';
-    var path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-    path.setAttribute('d', UP_ARROW_SVG_PATH);
-    svg.appendChild(path);
-    button.appendChild(svg);
+    // Same "›" glyph the post_nav.js prev/next buttons use, just rotated to point up
+    // instead of right, so all three floating buttons read as one consistent set.
+    var glyph = document.createElement('span');
+    glyph.textContent = '›';
+    glyph.style.display = 'inline-block';
+    glyph.style.transform = 'rotate(-90deg)';
+    button.appendChild(glyph);
 
     button.addEventListener('click', function (e) {
       e.preventDefault();
@@ -74,7 +84,7 @@
   }
 
   function update() {
-    var visible = enabled() && currentY() > SHOW_THRESHOLD;
+    var visible = isFeedPage() && enabled() && currentY() > SHOW_THRESHOLD;
     var el = ensureButton();
     el.style.display = visible ? 'flex' : 'none';
   }
@@ -86,4 +96,10 @@
   update();
 
   window.addEventListener('scroll', update, { passive: true, capture: true });
+
+  // document.title changes when opening/leaving a post, but that isn't a scroll or a
+  // DOM mutation this script would otherwise see — a lightweight poll is simpler and
+  // cheaper here than wiring a MutationObserver onto <title> for something that only
+  // needs to be noticed within a second or so of it happening.
+  setInterval(update, 500);
 })();
