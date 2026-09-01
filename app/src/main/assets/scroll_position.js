@@ -98,20 +98,44 @@
   // safe (min(target, reachable)) instead of only acting once reachable is already
   // past target. That keeps the visible content pinned near the target throughout the
   // reflow instead of leaving a window for the clamp to win.
+  // Describes which element is actually being read/written, and how — the "did setY
+  // even do anything" question a bare number can't answer on its own. sc !== window's
+  // own scrolling element is exactly the case that would make sc.scrollTop = y a no-op
+  // (e.g. a non-scrolling wrapper with overflow:visible, where scrollTop always reads
+  // back 0 regardless of what's assigned): only the window.scrollTo half of setY would
+  // be doing anything real in that case.
+  function scrollerDebug() {
+    var sc = scroller();
+    return sc.tagName + (sc.id ? '#' + sc.id : '') + ' scrollTop=' + Math.round(sc.scrollTop) +
+      ' scrollHeight=' + Math.round(sc.scrollHeight) + ' clientHeight=' + Math.round(sc.clientHeight) +
+      ' isScrollingElement=' + (sc === document.scrollingElement) + ' windowScrollY=' + Math.round(window.scrollY);
+  }
+
   window.__ffwRestoreScroll = function () {
     var target = lastGoodY;
     log('resume: target=' + Math.round(target) + ' at=' + Math.round(currentY()) +
-      ' reachable=' + Math.round(reachable()));
+      ' reachable=' + Math.round(reachable()) + ' | ' + scrollerDebug());
     if (target <= 50) return;
 
     holdUntil = Date.now() + 6000;
+    var tick = 0;
     (function reassert() {
+      tick++;
       if (Date.now() >= holdUntil) {
-        log('resume: settled at ' + Math.round(currentY()) + ' target=' + Math.round(target));
+        log('resume: settled at ' + Math.round(currentY()) + ' target=' + Math.round(target) +
+          ' | ' + scrollerDebug());
         return;
       }
       var safe = Math.min(target, reachable());
       if (safe > 0 && Math.abs(currentY() - safe) > 4) setY(safe);
+      // Every ~640ms (8 ticks * 80ms), not every tick — the 6s hold is ~75 ticks, and
+      // the shared log only keeps the last 40 entries, so per-tick logging would push
+      // everything before it (including the "resume:" start line) out before this even
+      // finishes.
+      if (tick % 8 === 0) {
+        log('resume: tick target=' + Math.round(target) + ' at=' + Math.round(currentY()) +
+          ' safe=' + Math.round(safe) + ' | ' + scrollerDebug());
+      }
       if (Math.abs(currentY() - target) <= 4) {
         holdUntil = Date.now();
         log('resume: reached target early at ' + Math.round(currentY()));

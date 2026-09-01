@@ -23,7 +23,7 @@
   if (window.__ffwResumeGuardInstalled) return;
   window.__ffwResumeGuardInstalled = true;
 
-  var LOG_CAP = 40;
+  var LOG_CAP = 80;
   var log = [];
   window.__ffwResumeLog = log;
 
