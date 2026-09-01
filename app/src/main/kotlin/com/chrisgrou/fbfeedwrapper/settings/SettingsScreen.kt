@@ -20,7 +20,6 @@ import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.Groups
-import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.Tab
@@ -144,6 +143,7 @@ fun EnhancementsScreen(
 ) {
     val hideReactions by displayPreferences.hideReactions.collectAsState()
     val hideSuggested by displayPreferences.hideSuggested.collectAsState()
+    val hidePeopleYouMayKnow by displayPreferences.hidePeopleYouMayKnow.collectAsState()
     val showScrollTopButton by displayPreferences.showScrollTopButton.collectAsState()
     val showPostNavButtons by displayPreferences.showPostNavButtons.collectAsState()
     val buttonSize by displayPreferences.buttonSize.collectAsState()
@@ -167,7 +167,6 @@ fun EnhancementsScreen(
                 ListItem(
                     headlineContent = { Text("Φιλτράρισμα") },
                     supportingContent = { Text("Ποιες ομάδες, σελίδες ή άτομα επιτρέπονται στο feed") },
-                    leadingContent = { Icon(Icons.Filled.List, contentDescription = null) },
                     trailingContent = { Icon(Icons.Filled.ChevronRight, contentDescription = null) },
                     modifier = Modifier.fillMaxWidth().clickable(onClick = onOpenAllowedSources),
                 )
@@ -194,10 +193,19 @@ fun EnhancementsScreen(
                     modifier = Modifier.fillMaxWidth(),
                 )
                 ListItem(
-                    headlineContent = { Text("Κουμπί επιστροφής στην κορυφή") },
-                    supportingContent = {
-                        Text("Ημιδιάφανο κουμπί κάτω στη μέση, μετά από λίγο scroll στο βασικό feed")
+                    headlineContent = { Text("Απόκρυψη \"People you may know\"") },
+                    supportingContent = { Text("Κρύβει τους προτεινόμενους φίλους μέσα στο feed") },
+                    trailingContent = {
+                        Switch(
+                            checked = hidePeopleYouMayKnow,
+                            onCheckedChange = displayPreferences::setHidePeopleYouMayKnow,
+                        )
                     },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                ListItem(
+                    headlineContent = { Text("Κουμπί επιστροφής στην κορυφή") },
+                    supportingContent = { Text("Γυρνάει στην αρχή του feed") },
                     trailingContent = {
                         Switch(
                             checked = showScrollTopButton,
@@ -208,7 +216,7 @@ fun EnhancementsScreen(
                 )
                 ListItem(
                     headlineContent = { Text("Κουμπιά προηγούμενο/επόμενο post") },
-                    supportingContent = { Text("Ημιδιάφανα κουμπιά κάτω δεξιά, μόνο στο βασικό feed") },
+                    supportingContent = { Text("Πλοήγηση στο προηγούμενο ή το επόμενο post του feed") },
                     trailingContent = {
                         Switch(
                             checked = showPostNavButtons,

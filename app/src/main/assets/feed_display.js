@@ -1,21 +1,24 @@
-// Feed display toggles (Feature: hide reactions / hide suggested groups). Both are
-// off by default and controlled from Settings — see FeedDisplayPreferences.
+// Feed display toggles (Feature: hide reactions / hide suggested groups / hide
+// suggested people). All off by default and controlled from Settings — see
+// FeedDisplayPreferences.
 (function () {
   if (window.__ffwDisplayInstalled) return;
   window.__ffwDisplayInstalled = true;
 
   var HIDDEN_ATTR = 'data-ffw-display-hidden';
   // Classification is permanent once decided (an element either is or isn't a
-  // reaction pill / suggested-groups block); the CHECKED attrs memoize that decision
-  // so a long infinite-scroll session only ever re-classifies nodes newly added
-  // since the last pass — the same reasoning feed_filter.js's DECIDED_ATTR documents.
-  // Whether a classified element is actually hidden is separate and re-applied every
-  // pass instead, since that depends on the current (togglable) preference, not on
-  // anything about the node itself.
+  // reaction pill / suggested-groups block / suggested-people block); the CHECKED
+  // attrs memoize that decision so a long infinite-scroll session only ever
+  // re-classifies nodes newly added since the last pass — the same reasoning
+  // feed_filter.js's DECIDED_ATTR documents. Whether a classified element is actually
+  // hidden is separate and re-applied every pass instead, since that depends on the
+  // current (togglable) preference, not on anything about the node itself.
   var REACTION_CHECKED_ATTR = 'data-ffw-reaction-checked';
   var REACTION_MARK_ATTR = 'data-ffw-is-reaction';
   var SUGGESTED_CHECKED_ATTR = 'data-ffw-suggested-checked';
   var SUGGESTED_MARK_ATTR = 'data-ffw-is-suggested';
+  var PEOPLE_CHECKED_ATTR = 'data-ffw-people-checked';
+  var PEOPLE_MARK_ATTR = 'data-ffw-is-people';
   var SCROLLER_SELECTOR = '[data-type="vscroller"]';
 
   if (!document.getElementById('ffw-display-style')) {
@@ -30,9 +33,10 @@
       return {
         hideReactions: !!(window.NativeDisplay && window.NativeDisplay.getHideReactions()),
         hideSuggested: !!(window.NativeDisplay && window.NativeDisplay.getHideSuggested()),
+        hidePeople: !!(window.NativeDisplay && window.NativeDisplay.getHidePeopleYouMayKnow()),
       };
     } catch (e) {
-      return { hideReactions: false, hideSuggested: false };
+      return { hideReactions: false, hideSuggested: false, hidePeople: false };
     }
   }
 
@@ -64,19 +68,21 @@
     for (var j = 0; j < marked.length; j++) setHidden(marked[j], enabled);
   }
 
-  // Facebook's own group-suggestion carousel doesn't carry a distinctive selector
-  // (unlike a post's data-tracking-duration-id), so this looks for its exact heading
-  // text instead and climbs to whatever direct child of the feed scroller contains
-  // it — the same "climb to the nearest scroller child" shape feed_filter.js uses
-  // for a post's own wrapper.
-  function applySuggested(enabled) {
-    var newLeaves = document.querySelectorAll('*:not([' + SUGGESTED_CHECKED_ATTR + '])');
+  // Facebook's own group-suggestion and people-suggestion carousels don't carry a
+  // distinctive selector (unlike a post's data-tracking-duration-id), so this looks
+  // for the block's exact heading text instead and climbs to whatever direct child of
+  // the feed scroller contains it — the same "climb to the nearest scroller child"
+  // shape feed_filter.js uses for a post's own wrapper. Shared by applySuggested() and
+  // applyPeopleYouMayKnow() below, which only differ in the heading text they match
+  // and which attrs they memoize under.
+  function applyHeadingBlock(headingText, checkedAttr, markAttr, enabled) {
+    var newLeaves = document.querySelectorAll('*:not([' + checkedAttr + '])');
     for (var i = 0; i < newLeaves.length; i++) {
       var el = newLeaves[i];
-      el.setAttribute(SUGGESTED_CHECKED_ATTR, '1');
+      el.setAttribute(checkedAttr, '1');
       if (el.children.length > 0) continue;
       var text = (el.textContent || '').trim();
-      if (text !== 'Suggested for you') continue;
+      if (text !== headingText) continue;
 
       var scroller = el.closest(SCROLLER_SELECTOR);
       var node = el;
@@ -84,16 +90,25 @@
       while (node.parentElement && node.parentElement !== scroller && guard++ < 12) {
         node = node.parentElement;
       }
-      node.setAttribute(SUGGESTED_MARK_ATTR, '1');
+      node.setAttribute(markAttr, '1');
     }
-    var marked = document.querySelectorAll('[' + SUGGESTED_MARK_ATTR + '="1"]');
+    var marked = document.querySelectorAll('[' + markAttr + '="1"]');
     for (var j = 0; j < marked.length; j++) setHidden(marked[j], enabled);
+  }
+
+  function applySuggested(enabled) {
+    applyHeadingBlock('Suggested for you', SUGGESTED_CHECKED_ATTR, SUGGESTED_MARK_ATTR, enabled);
+  }
+
+  function applyPeopleYouMayKnow(enabled) {
+    applyHeadingBlock('People you may know', PEOPLE_CHECKED_ATTR, PEOPLE_MARK_ATTR, enabled);
   }
 
   function apply() {
     var p = prefs();
     applyReactions(p.hideReactions);
     applySuggested(p.hideSuggested);
+    applyPeopleYouMayKnow(p.hidePeople);
   }
 
   // Re-applies against the current preference values (not just newly-added DOM) so
