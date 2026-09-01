@@ -63,7 +63,6 @@ private const val REFRESH_DISPLAY_JS = "window.__ffwRefreshDisplay && window.__f
 private const val REFRESH_TABS_JS = "window.__ffwRefreshTabs && window.__ffwRefreshTabs();"
 private const val REFRESH_SCROLL_TOP_JS = "window.__ffwRefreshScrollTop && window.__ffwRefreshScrollTop();"
 private const val REFRESH_POST_NAV_JS = "window.__ffwRefreshPostNav && window.__ffwRefreshPostNav();"
-private const val RESTORE_SCROLL_JS = "window.__ffwRestoreScroll && window.__ffwRestoreScroll();"
 
 class MainActivity : ComponentActivity() {
 
@@ -108,11 +107,6 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         webView?.onResume()
         webView?.resumeTimers()
-        // The page survives backgrounding, but the feed's virtualized scroller doesn't
-        // survive being frozen — it comes back clamped to the top. scroll_position.js
-        // puts the user back where they were; see __ffwRestoreScroll for the details.
-        // A no-op on the very first onResume, before any page has loaded.
-        webView?.evaluateJavascript(RESTORE_SCROLL_JS, null)
     }
 
     // The WebView now outlives every composition (see App()), so nothing else would

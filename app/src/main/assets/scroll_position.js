@@ -39,37 +39,9 @@
     if (window.__ffwLog) window.__ffwLog('scroll: ' + msg);
   }
 
-  // How far down the page can actually be scrolled right now. Not just the vscroller's
-  // own scrollHeight - clientHeight: an on-device trace caught scroller() resolving to
-  // a DIV whose scrollHeight and clientHeight were within 2px of each other (35818 vs
-  // 35816) — a block sized to fit all of its own content, not a real overflow
-  // container — while window.scrollY sat at the correct, already-restored offset the
-  // whole time. That vscroller-only reading called the page "unreachable" when it very
-  // much wasn't, which is what let __ffwRestoreScroll below drag a perfectly good
-  // position down to 0. Taking the max of both readings means an actually-scrollable
-  // vscroller (the case this was originally written for) still works, while a page
-  // that scrolls at the document level instead — this trace's actual case — isn't
-  // penalized for the vscroller marker not being where the scrolling happens.
-  function reachable() {
-    var sc = scroller();
-    var viaScroller = sc.scrollHeight - sc.clientHeight;
-    var viaDocument = document.documentElement.scrollHeight - window.innerHeight;
-    return Math.max(viaScroller, viaDocument, 0);
-  }
-
   // The offset we believe the user actually chose, as opposed to whatever the browser
-  // currently reports. They diverge on resume — see restoreAfterResume() below.
+  // currently reports.
   var lastGoodY = 0;
-  // While in the future, incoming scroll events are neither trusted nor saved: they're
-  // the page settling itself after a resume, not the user moving — and it's also what
-  // the long delayed-reset watch below checks to know a touch cancelled it, so it spans
-  // that whole watch (tens of seconds), not just the tight correction loop's own much
-  // shorter window (see tightUntil).
-  var guardUntil = 0;
-  // The tight per-80ms correction loop's own, much shorter budget — separate from
-  // guardUntil so a resume that needed no correction doesn't run 80ms ticks for the
-  // full length of the delayed-reset watch too.
-  var tightUntil = 0;
 
   var saveTimer = null;
   function scheduleSave() {
@@ -84,19 +56,8 @@
   // 'scroll' doesn't bubble, but a capturing listener on window still sees it on the
   // way down to the actual target.
   window.addEventListener('scroll', function () {
-    if (Date.now() < guardUntil) return;
     lastGoodY = currentY();
     scheduleSave();
-  }, { passive: true, capture: true });
-
-  // A real finger on the screen ends any restore in progress: past that point the user
-  // is choosing where to be, and fighting them would be worse than losing the offset.
-  window.addEventListener('touchstart', function () {
-    if (Date.now() < guardUntil) {
-      guardUntil = 0;
-      tightUntil = 0;
-      log('restore cancelled by touch at ' + Math.round(currentY()));
-    }
   }, { passive: true, capture: true });
 
   var saved = 0;
@@ -105,111 +66,18 @@
   } catch (e) {}
   lastGoodY = saved;
 
-  // Called natively from MainActivity.onResume(). The page is never reloaded across a
-  // backgrounding (confirmed on-device: the resume log shows one "load type=navigate"
-  // spanning several resumes), yet the feed still comes back at the top — because the
-  // feed is a virtualized scroller. Frozen, it drops its off-screen rows; on resume its
-  // scrollHeight briefly collapses and the browser clamps scrollTop to what's left,
-  // i.e. 0. That clamp then fires a scroll event, which is how the saved offset used to
-  // get overwritten with 0 as well, losing it for good.
-  //
-  // A first on-device trace showed why passively waiting for reachable to catch up
-  // isn't enough: currentY was still 5525 (correct!) the instant this ran, but
-  // reachable was only 2 — nothing had streamed back in yet — so the "only jump once
-  // reachable covers the target" rule (right for the cold-start restore below, which
-  // must avoid landing on blank space past the loaded content) did nothing, and the
-  // browser's own clamp dragged scrollTop to 0 while this sat there waiting. Rows
-  // stream back in gradually, not all at once, so the fix is to actively track that
-  // climb: on every tick, pin scrollTop to whatever's the deepest position currently
-  // safe (min(target, reachable)) instead of only acting once reachable is already
-  // past target. That keeps the visible content pinned near the target throughout the
-  // reflow instead of leaving a window for the clamp to win.
-  // Describes which element is actually being read/written, and how — the "did setY
-  // even do anything" question a bare number can't answer on its own. sc !== window's
-  // own scrolling element is exactly the case that would make sc.scrollTop = y a no-op
-  // (e.g. a non-scrolling wrapper with overflow:visible, where scrollTop always reads
-  // back 0 regardless of what's assigned): only the window.scrollTo half of setY would
-  // be doing anything real in that case.
-  function scrollerDebug() {
-    var sc = scroller();
-    return sc.tagName + (sc.id ? '#' + sc.id : '') + ' scrollTop=' + Math.round(sc.scrollTop) +
-      ' scrollHeight=' + Math.round(sc.scrollHeight) + ' clientHeight=' + Math.round(sc.clientHeight) +
-      ' isScrollingElement=' + (sc === document.scrollingElement) + ' windowScrollY=' + Math.round(window.scrollY);
-  }
-
-  // Runs after the tight reassert loop below is done (whether it had to correct
-  // anything or not), and covers a much longer stretch: an on-device trace showed the
-  // feed reset to scrollY=0 a full 25s after a resume the tight loop had already
-  // confirmed correct, with none of resume_guard.js's visibility events logged in that
-  // gap. That's outside any window a quick post-resume correction was ever going to
-  // cover, and points at something async — most likely a GraphQL refetch queued while
-  // backgrounded that only completes once timers resume — rather than the clamp this
-  // file was originally written against. So: keep comparing against the target for a
-  // full WATCH_MS, correct any drift found (logging it, since a correction here means
-  // the earlier "settled"/"already at target" call was wrong and something moved it
-  // after the fact), and ask resume_guard.js to log network activity for the same
-  // window so a next capture can name what's actually responsible.
-  var WATCH_MS = 25000;
-  var WATCH_INTERVAL_MS = 1000;
-
-  function watchForDelayedReset(target) {
-    // guardUntil, not a separate deadline: touchstart above zeroes it the instant the
-    // user actually touches the screen, which is how this loop notices and steps aside
-    // (checked every tick, not just once, since the natural expiry and a touch
-    // cancellation both end up here — the guard simply stops being in the future).
-    if (Date.now() >= guardUntil) return;
-    var y = currentY();
-    if (Math.abs(y - target) > 100) {
-      log('resume: delayed reset detected — at=' + Math.round(y) + ' target=' + Math.round(target) +
-        ' reachable=' + Math.round(reachable()) + ' | ' + scrollerDebug());
-      var safe = Math.min(target, reachable());
-      if (safe > 0) setY(safe);
-      log('resume: corrected to ' + Math.round(currentY()));
-    }
-    setTimeout(function () { watchForDelayedReset(target); }, WATCH_INTERVAL_MS);
-  }
-
-  window.__ffwRestoreScroll = function () {
-    var target = lastGoodY;
-    log('resume: target=' + Math.round(target) + ' at=' + Math.round(currentY()) +
-      ' reachable=' + Math.round(reachable()) + ' | ' + scrollerDebug());
-    if (target <= 50) return;
-
-    if (window.__ffwWatchNetwork) window.__ffwWatchNetwork(WATCH_MS);
-    guardUntil = Date.now() + WATCH_MS;
-    tightUntil = Date.now() + 6000;
-    var tick = 0;
-    (function reassert() {
-      tick++;
-      // Checked first, before anything below can call setY: an on-device trace caught
-      // the browser already sitting exactly on target the instant this ran (the page
-      // was never actually disturbed), and a stale reachable() reading below that
-      // target dragged a perfectly good position down anyway. Nothing to fix if
-      // there's nothing wrong — leave it alone rather than risk moving it.
-      if (Math.abs(currentY() - target) <= 4) {
-        log('resume: already at target (' + Math.round(currentY()) + '), nothing to do');
-        watchForDelayedReset(target);
-        return;
-      }
-      if (Date.now() >= tightUntil || Date.now() >= guardUntil) {
-        log('resume: settled at ' + Math.round(currentY()) + ' target=' + Math.round(target) +
-          ' | ' + scrollerDebug());
-        watchForDelayedReset(target);
-        return;
-      }
-      var safe = Math.min(target, reachable());
-      if (safe > 0 && Math.abs(currentY() - safe) > 4) setY(safe);
-      // Every ~640ms (8 ticks * 80ms), not every tick — the 6s hold is ~75 ticks, and
-      // the shared log only keeps the last entries, so per-tick logging would push
-      // everything before it (including the "resume:" start line) out before this even
-      // finishes.
-      if (tick % 8 === 0) {
-        log('resume: tick target=' + Math.round(target) + ' at=' + Math.round(currentY()) +
-          ' safe=' + Math.round(safe) + ' | ' + scrollerDebug());
-      }
-      setTimeout(reassert, 80);
-    })();
-  };
+  // Restoring the pre-background scroll offset on resume was tried and abandoned: the
+  // feed's virtualized scroller genuinely discards far-off content while frozen, and
+  // an on-device trace of the "keep re-asserting the target as content streams back
+  // in" approach showed it climbing 0 -> 598 -> 1284 -> 4057 -> ... -> 19153 over a
+  // full 22 real seconds, visibly, without ever fully reaching the target — because
+  // reconstructing that much content genuinely takes that long, no matter how the
+  // correction is paced. There's no way to make that instant from here; the honest
+  // answer for a page whose own virtualization threw away that much state is that
+  // it's gone until reloaded, not that it can be smoothly animated back. Rather than
+  // replace one bad experience (landing at the top) with a worse, jumpier one, resume
+  // now leaves the browser's natural post-resume position alone entirely, and only
+  // resume_guard.js's (invisible) visibility masking remains.
 
   // Temporary kill switch (Settings → toggles) for isolating whether this fix has
   // anything to do with a separate, still-unsolved bug (Facebook's own top tab bar

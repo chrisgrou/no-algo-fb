@@ -19,6 +19,14 @@
 // one of them is still recorded first (window.__ffwResumeLog, surfaced in the debug
 // dump) so a capture taken right after a resume shows what actually fired — and
 // whether suppressing it was enough — instead of us guessing again.
+//
+// What this file does NOT fix: the feed's own virtualized scroller discards far-off
+// rendered content while frozen regardless of any of the above, so a long-enough
+// backgrounding can still lose the visible scroll position even though none of 1-3
+// happened. scroll_position.js tried actively re-scrolling back to it on resume and
+// abandoned that (see its own comment) — reconstructing that much content visibly
+// takes many real seconds no matter how it's paced, which read as worse than just
+// leaving the browser's natural post-resume position alone.
 (function () {
   if (window.__ffwResumeGuardInstalled) return;
   window.__ffwResumeGuardInstalled = true;
@@ -117,60 +125,5 @@
       return;
     }
     return nativeAdd.call(this, type, listener, options);
-  };
-
-  // Diagnostic for the case that motivated this file in the first place but that
-  // pinning visibility alone doesn't explain: an on-device trace showed the feed
-  // resetting to scrollY=0 a full 25s after a clean resume, with none of the events
-  // above logged in between — i.e. not a visibility listener at all, but something
-  // async (most likely a GraphQL refetch queued while backgrounded, completing once
-  // WebView.resumeTimers() lets its callback run). Logging isn't free — this page
-  // fires a steady stream of requests just scrolling normally — so it only records
-  // while __ffwNetworkWatchUntil is in the future; scroll_position.js's resume
-  // restore opens that window via __ffwWatchNetwork(ms) rather than this running
-  // unconditionally.
-  var networkWatchUntil = 0;
-  window.__ffwWatchNetwork = function (ms) {
-    networkWatchUntil = Date.now() + ms;
-  };
-  function networkWatching() {
-    return Date.now() < networkWatchUntil;
-  }
-
-  var nativeFetch = window.fetch;
-  if (nativeFetch) {
-    window.fetch = function (input, init) {
-      var watching = networkWatching();
-      var url = typeof input === 'string' ? input : (input && input.url) || '(unknown)';
-      var start = Date.now();
-      if (watching) record('fetch -> ' + String(url).substring(0, 200));
-      var result = nativeFetch.apply(this, arguments);
-      if (watching) {
-        result.then(
-          function (res) { record('fetch <- ' + res.status + ' (' + (Date.now() - start) + 'ms) ' + String(url).substring(0, 120)); },
-          function (err) { record('fetch xx ' + (err && err.message) + ' (' + (Date.now() - start) + 'ms) ' + String(url).substring(0, 120)); },
-        );
-      }
-      return result;
-    };
-  }
-
-  var nativeOpen = XMLHttpRequest.prototype.open;
-  var nativeSend = XMLHttpRequest.prototype.send;
-  XMLHttpRequest.prototype.open = function (method, url) {
-    this.__ffwUrl = url;
-    this.__ffwMethod = method;
-    return nativeOpen.apply(this, arguments);
-  };
-  XMLHttpRequest.prototype.send = function () {
-    if (networkWatching()) {
-      var self = this;
-      var start = Date.now();
-      record('xhr -> ' + this.__ffwMethod + ' ' + String(this.__ffwUrl).substring(0, 200));
-      this.addEventListener('loadend', function () {
-        record('xhr <- ' + self.status + ' (' + (Date.now() - start) + 'ms) ' + String(self.__ffwUrl).substring(0, 120));
-      });
-    }
-    return nativeSend.apply(this, arguments);
   };
 })();
