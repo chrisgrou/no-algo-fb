@@ -141,10 +141,7 @@ fun EnhancementsScreen(
     onBack: () -> Unit,
     onOpenAllowedSources: () -> Unit,
     displayPreferences: FeedDisplayPreferences,
-    settingsViewModel: SettingsViewModel = viewModel(),
 ) {
-    val allowedPages by settingsViewModel.allowedPages.collectAsState()
-    val filteringEnabled by displayPreferences.filteringEnabled.collectAsState()
     val hideReactions by displayPreferences.hideReactions.collectAsState()
     val hideSuggested by displayPreferences.hideSuggested.collectAsState()
     val showScrollTopButton by displayPreferences.showScrollTopButton.collectAsState()
@@ -168,35 +165,8 @@ fun EnhancementsScreen(
         LazyColumn(Modifier.fillMaxSize().padding(padding)) {
             item {
                 ListItem(
-                    headlineContent = { Text("Ενεργοποίηση φιλτραρίσματος") },
-                    supportingContent = {
-                        Text(
-                            if (filteringEnabled) {
-                                "Μόνο posts από τις επιτρεπόμενες πηγές εμφανίζονται"
-                            } else {
-                                "Ανενεργό — εμφανίζονται όλα τα posts, ό,τι κι αν έχεις στη λίστα"
-                            },
-                        )
-                    },
-                    trailingContent = {
-                        Switch(
-                            checked = filteringEnabled,
-                            onCheckedChange = displayPreferences::setFilteringEnabled,
-                        )
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                ListItem(
-                    headlineContent = { Text("Επιτρεπόμενες πηγές") },
-                    supportingContent = {
-                        Text(
-                            if (allowedPages.isEmpty()) {
-                                "Άδεια λίστα — εμφανίζονται όλα τα posts"
-                            } else {
-                                "${allowedPages.size} ομάδες, σελίδες ή άτομα επιτρέπονται"
-                            },
-                        )
-                    },
+                    headlineContent = { Text("Φιλτράρισμα") },
+                    supportingContent = { Text("Ποιες ομάδες, σελίδες ή άτομα επιτρέπονται στο feed") },
                     leadingContent = { Icon(Icons.Filled.List, contentDescription = null) },
                     trailingContent = { Icon(Icons.Filled.ChevronRight, contentDescription = null) },
                     modifier = Modifier.fillMaxWidth().clickable(onClick = onOpenAllowedSources),
@@ -531,9 +501,11 @@ fun TabIconsScreen(
 fun AllowedSourcesScreen(
     onBack: () -> Unit,
     onOpenSync: () -> Unit,
+    displayPreferences: FeedDisplayPreferences,
     settingsViewModel: SettingsViewModel = viewModel(),
 ) {
     val allowedPages by settingsViewModel.allowedPages.collectAsState()
+    val filteringEnabled by displayPreferences.filteringEnabled.collectAsState()
     var newPageName by remember { mutableStateOf("") }
     var editingName by remember { mutableStateOf<String?>(null) }
 
@@ -542,7 +514,7 @@ fun AllowedSourcesScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Επιτρεπόμενες πηγές") },
+                title = { Text("Φιλτράρισμα") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.Filled.ArrowBack, contentDescription = "Πίσω")
@@ -558,14 +530,31 @@ fun AllowedSourcesScreen(
     ) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding)) {
             item {
+                ListItem(
+                    headlineContent = { Text("Ενεργοποίηση φιλτραρίσματος") },
+                    supportingContent = {
+                        Text(
+                            if (filteringEnabled) {
+                                "Μόνο posts από την παρακάτω λίστα εμφανίζονται στο feed"
+                            } else {
+                                "Ανενεργό — εμφανίζονται όλα τα posts του feed"
+                            },
+                        )
+                    },
+                    trailingContent = {
+                        Switch(
+                            checked = filteringEnabled,
+                            onCheckedChange = displayPreferences::setFilteringEnabled,
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                )
                 Text(
-                    "Μόνο posts από όσα βρίσκονται σε αυτή τη λίστα εμφανίζονται στο feed, " +
-                        "ανεξάρτητα από το ποιος τα δημοσίευσε — άδεια λίστα σημαίνει ότι " +
-                        "εμφανίζονται όλα. Δεν είναι μόνο ομάδες και σελίδες: μπορείς να " +
-                        "προσθέσεις και το όνομα ενός συγκεκριμένου φίλου/ατόμου που " +
-                        "ακολουθείς, με τον ίδιο ακριβώς τρόπο. Πρόσθεσε μία-μία παρακάτω, ή " +
-                        "πάτα το εικονίδιο πάνω δεξιά για να σαρώσεις κατευθείαν από μια " +
-                        "λίστα του Facebook (ομάδες, σελίδες ή φίλοι).",
+                    "Δεν είναι μόνο ομάδες και σελίδες: μπορείς να προσθέσεις και το όνομα " +
+                        "ενός συγκεκριμένου φίλου/ατόμου που ακολουθείς, με τον ίδιο ακριβώς " +
+                        "τρόπο. Πρόσθεσε μία-μία παρακάτω, ή πάτα το εικονίδιο πάνω δεξιά για " +
+                        "να σαρώσεις κατευθείαν από μια λίστα του Facebook (ομάδες, σελίδες ή " +
+                        "φίλοι).",
                     style = MaterialTheme.typography.bodyMedium,
                     modifier = Modifier.padding(16.dp),
                 )

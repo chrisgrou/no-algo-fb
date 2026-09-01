@@ -164,6 +164,7 @@ private fun App(
         Screen.AllowedSources -> AllowedSourcesScreen(
             onBack = { screen = Screen.Enhancements },
             onOpenSync = { screen = Screen.Sync },
+            displayPreferences = displayPreferences,
             settingsViewModel = settingsViewModel,
         )
         Screen.Debug -> DebugScreen(
@@ -179,7 +180,6 @@ private fun App(
             onBack = { screen = Screen.Settings },
             onOpenAllowedSources = { screen = Screen.AllowedSources },
             displayPreferences = displayPreferences,
-            settingsViewModel = settingsViewModel,
         )
     }
 }
