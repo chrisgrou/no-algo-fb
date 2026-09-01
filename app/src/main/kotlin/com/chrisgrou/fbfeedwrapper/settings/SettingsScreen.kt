@@ -549,68 +549,73 @@ fun AllowedSourcesScreen(
                     },
                     modifier = Modifier.fillMaxWidth(),
                 )
-                Text(
-                    "Δεν είναι μόνο ομάδες και σελίδες: μπορείς να προσθέσεις και το όνομα " +
-                        "ενός συγκεκριμένου φίλου/ατόμου που ακολουθείς, με τον ίδιο ακριβώς " +
-                        "τρόπο. Πρόσθεσε μία-μία παρακάτω, ή πάτα το εικονίδιο πάνω δεξιά για " +
-                        "να σαρώσεις κατευθείαν από μια λίστα του Facebook (ομάδες, σελίδες ή " +
-                        "φίλοι).",
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.padding(16.dp),
-                )
-                Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    OutlinedTextField(
-                        value = newPageName,
-                        onValueChange = { newPageName = it },
-                        label = { Text("Όνομα ομάδας, σελίδας ή ατόμου") },
-                        singleLine = true,
-                        modifier = Modifier.weight(1f),
-                    )
-                    TextButton(
-                        onClick = {
-                            if (newPageName.isNotBlank()) {
-                                settingsViewModel.addPage(newPageName)
-                                newPageName = ""
-                            }
-                        },
-                        enabled = newPageName.isNotBlank(),
-                    ) {
-                        Text("Προσθήκη")
-                    }
-                }
-                if (allowedPages.isNotEmpty()) {
-                    Text(
-                        "${allowedPages.size} πηγές — πάτα σε μία για να την επεξεργαστείς",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(start = 16.dp, top = 8.dp, bottom = 4.dp),
-                    )
-                } else {
-                    Text(
-                        "Δεν έχεις προσθέσει καμία πηγή ακόμα.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(16.dp),
-                    )
-                }
             }
 
-            items(allowedPages.sorted()) { name ->
-                ListItem(
-                    headlineContent = { Text(name) },
-                    leadingContent = { Icon(Icons.Filled.Groups, contentDescription = null) },
-                    trailingContent = {
-                        IconButton(onClick = { settingsViewModel.removePage(name) }) {
-                            Icon(Icons.Filled.Delete, contentDescription = "Αφαίρεση")
+            if (filteringEnabled) {
+                item {
+                    Text(
+                        "Δεν είναι μόνο ομάδες και σελίδες: μπορείς να προσθέσεις και το όνομα " +
+                            "ενός συγκεκριμένου φίλου/ατόμου που ακολουθείς, με τον ίδιο ακριβώς " +
+                            "τρόπο. Πρόσθεσε μία-μία παρακάτω, ή πάτα το εικονίδιο πάνω δεξιά για " +
+                            "να σαρώσεις κατευθείαν από μια λίστα του Facebook (ομάδες, σελίδες ή " +
+                            "φίλοι).",
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(16.dp),
+                    )
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        OutlinedTextField(
+                            value = newPageName,
+                            onValueChange = { newPageName = it },
+                            label = { Text("Όνομα ομάδας, σελίδας ή ατόμου") },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f),
+                        )
+                        TextButton(
+                            onClick = {
+                                if (newPageName.isNotBlank()) {
+                                    settingsViewModel.addPage(newPageName)
+                                    newPageName = ""
+                                }
+                            },
+                            enabled = newPageName.isNotBlank(),
+                        ) {
+                            Text("Προσθήκη")
                         }
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { editingName = name },
-                )
+                    }
+                    if (allowedPages.isNotEmpty()) {
+                        Text(
+                            "${allowedPages.size} πηγές — πάτα σε μία για να την επεξεργαστείς",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(start = 16.dp, top = 8.dp, bottom = 4.dp),
+                        )
+                    } else {
+                        Text(
+                            "Δεν έχεις προσθέσει καμία πηγή ακόμα.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(16.dp),
+                        )
+                    }
+                }
+
+                items(allowedPages.sorted()) { name ->
+                    ListItem(
+                        headlineContent = { Text(name) },
+                        leadingContent = { Icon(Icons.Filled.Groups, contentDescription = null) },
+                        trailingContent = {
+                            IconButton(onClick = { settingsViewModel.removePage(name) }) {
+                                Icon(Icons.Filled.Delete, contentDescription = "Αφαίρεση")
+                            }
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { editingName = name },
+                    )
+                }
             }
         }
     }
