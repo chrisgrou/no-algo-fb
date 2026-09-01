@@ -3,6 +3,7 @@ package com.chrisgrou.fbfeedwrapper.settings
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -31,6 +32,7 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -158,6 +160,7 @@ fun EnhancementsScreen(
     val hideSuggested by displayPreferences.hideSuggested.collectAsState()
     val showScrollTopButton by displayPreferences.showScrollTopButton.collectAsState()
     val showPostNavButtons by displayPreferences.showPostNavButtons.collectAsState()
+    val buttonSize by displayPreferences.buttonSize.collectAsState()
 
     BackHandler(onBack = onBack)
 
@@ -206,7 +209,7 @@ fun EnhancementsScreen(
                 )
                 ListItem(
                     headlineContent = { Text("Κουμπί επιστροφής στην κορυφή") },
-                    supportingContent = { Text("Ημιδιάφανο κουμπί κάτω δεξιά στο feed, μετά από λίγο scroll") },
+                    supportingContent = { Text("Ημιδιάφανο κουμπί κάτω στη μέση του feed, μετά από λίγο scroll") },
                     trailingContent = {
                         Switch(
                             checked = showScrollTopButton,
@@ -217,12 +220,27 @@ fun EnhancementsScreen(
                 )
                 ListItem(
                     headlineContent = { Text("Κουμπιά προηγούμενο/επόμενο post") },
-                    supportingContent = { Text("Ημιδιάφανα κουμπιά κάτω αριστερά στο feed") },
+                    supportingContent = { Text("Ημιδιάφανα κουμπιά κάτω δεξιά στο feed") },
                     trailingContent = {
                         Switch(
                             checked = showPostNavButtons,
                             onCheckedChange = displayPreferences::setShowPostNavButtons,
                         )
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                ListItem(
+                    headlineContent = { Text("Μέγεθος κουμπιών") },
+                    supportingContent = {
+                        Column {
+                            Text("Επιστροφή στην κορυφή & προηγούμενο/επόμενο post ($buttonSize dp)")
+                            Slider(
+                                value = buttonSize.toFloat(),
+                                onValueChange = { displayPreferences.setButtonSize(it.toInt()) },
+                                valueRange = MIN_BUTTON_SIZE.toFloat()..MAX_BUTTON_SIZE.toFloat(),
+                                steps = (MAX_BUTTON_SIZE - MIN_BUTTON_SIZE) / 4 - 1,
+                            )
+                        }
                     },
                     modifier = Modifier.fillMaxWidth(),
                 )

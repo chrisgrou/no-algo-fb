@@ -1,6 +1,7 @@
 package com.chrisgrou.fbfeedwrapper
 
 import android.annotation.SuppressLint
+import android.net.Uri
 import android.os.Bundle
 import android.view.ViewGroup
 import android.webkit.CookieManager
@@ -218,6 +219,7 @@ private fun FbWebViewScreen(
     val hideSuggested by displayPreferences.hideSuggested.collectAsState()
     val showScrollTopButton by displayPreferences.showScrollTopButton.collectAsState()
     val showPostNavButtons by displayPreferences.showPostNavButtons.collectAsState()
+    val buttonSize by displayPreferences.buttonSize.collectAsState()
     val hiddenTabs by tabPreferences.hiddenTabs.collectAsState()
     val tabOrder by tabPreferences.tabOrder.collectAsState()
     val topBarModEnabled by debugToggles.topBarModEnabled.collectAsState()
@@ -244,13 +246,15 @@ private fun FbWebViewScreen(
         webViewRef?.evaluateJavascript(REFRESH_TABS_JS, null)
     }
 
-    // Re-applies the return-to-top button's on/off preference the same way.
-    LaunchedEffect(showScrollTopButton) {
+    // Re-applies the return-to-top button's on/off preference the same way. Both
+    // floating buttons also read their own size fresh from the same preference on
+    // every update() pass, so a size change picks this up too without its own effect.
+    LaunchedEffect(showScrollTopButton, buttonSize) {
         webViewRef?.evaluateJavascript(REFRESH_SCROLL_TOP_JS, null)
     }
 
     // Re-applies the previous/next-post buttons' on/off preference the same way.
-    LaunchedEffect(showPostNavButtons) {
+    LaunchedEffect(showPostNavButtons, buttonSize) {
         webViewRef?.evaluateJavascript(REFRESH_POST_NAV_JS, null)
     }
 
@@ -300,8 +304,13 @@ private fun FbWebViewScreen(
                         canGoBack = view.canGoBack()
                     })
                     webChromeClient = object : WebChromeClient() {
+                        // Title alone isn't enough — see feed_filter.js's isFeedPage()
+                        // for why: a post's own permalink page (story.php) keeps the
+                        // title "Facebook" too, so this also requires the path to
+                        // still be the feed's own root.
                         override fun onReceivedTitle(view: WebView, title: String?) {
-                            isBaseFeed = title == "Facebook"
+                            val path = runCatching { Uri.parse(view.url).path }.getOrNull()
+                            isBaseFeed = title == "Facebook" && (path == "/" || path.isNullOrEmpty())
                         }
                     }
 

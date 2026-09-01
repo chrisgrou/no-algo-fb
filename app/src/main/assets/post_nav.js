@@ -15,13 +15,14 @@
   var HIDDEN_ATTR = 'data-ffw-hidden';
   var EDGE_THRESHOLD = 8;
 
-  // Same signal feed_filter.js's isFeedPage() and MainActivity's isBaseFeed already
-  // use — document.title is "Facebook" on the main feed and something else (a post's
-  // own title, "Replies", ...) everywhere else, unlike the URL, which this WebLitePipe
-  // client doesn't reliably change for in-app screen navigation. These buttons only
-  // make sense scrolling through the feed itself, not inside a post someone opened.
+  // Same check feed_filter.js's own isFeedPage() uses — see the long comment there for
+  // why BOTH document.title and location.pathname are required: title alone missed a
+  // post's own permalink page (story.php), which keeps title "Facebook" but changes
+  // the path; pathname alone misses the "Replies" screen, which keeps the path "/"
+  // but changes the title. Only requiring both to agree correctly excludes either.
+  // These buttons only make sense scrolling through the feed itself.
   function isFeedPage() {
-    return document.title === 'Facebook';
+    return document.title === 'Facebook' && (location.pathname === '/' || location.pathname === '');
   }
 
   function scroller() {
@@ -105,26 +106,31 @@
     return null;
   }
 
+  function buttonSize() {
+    try {
+      var size = window.NativeDisplay ? window.NativeDisplay.getButtonSize() : 52;
+      return size > 0 ? size : 52;
+    } catch (e) {
+      return 52;
+    }
+  }
+
   var prevButton = null;
   var nextButton = null;
 
-  function makeButton(id, label, ariaLabel, right) {
+  function makeButton(id, label, ariaLabel) {
     var btn = document.createElement('div');
     btn.id = id;
     btn.setAttribute('role', 'button');
     btn.setAttribute('aria-label', ariaLabel);
     btn.style.position = 'fixed';
-    btn.style.right = right;
     btn.style.bottom = '16px';
-    btn.style.width = '52px';
-    btn.style.height = '52px';
     btn.style.borderRadius = '50%';
     btn.style.display = 'none';
     btn.style.alignItems = 'center';
     btn.style.justifyContent = 'center';
     btn.style.background = 'rgba(24,25,26,0.35)';
     btn.style.color = '#ffffff';
-    btn.style.fontSize = '24px';
     btn.style.fontWeight = 'bold';
     btn.style.lineHeight = '1';
     btn.style.zIndex = '999999';
@@ -136,9 +142,7 @@
 
   function ensureButtons() {
     if (!prevButton) {
-      // 76px = nextButton's right (16) + its width (52) + an 8px gap — prev sits
-      // further from the edge, next closest to it.
-      prevButton = makeButton('__ffwPrevPostButton', '‹', 'Προηγούμενο post', '76px');
+      prevButton = makeButton('__ffwPrevPostButton', '‹', 'Προηγούμενο post');
       prevButton.addEventListener('click', function (e) {
         e.preventDefault();
         e.stopPropagation();
@@ -147,7 +151,7 @@
       });
     }
     if (!nextButton) {
-      nextButton = makeButton('__ffwNextPostButton', '›', 'Επόμενο post', '16px');
+      nextButton = makeButton('__ffwNextPostButton', '›', 'Επόμενο post');
       nextButton.addEventListener('click', function (e) {
         e.preventDefault();
         e.stopPropagation();
@@ -155,6 +159,21 @@
         if (n) scrollToPost(n);
       });
     }
+  }
+
+  // Sizes and positions both buttons together — next sits flush against the right
+  // edge, prev sits just to its left with an 8px gap, and since the gap depends on
+  // the (now user-adjustable) size, both need recomputing together whenever it
+  // changes rather than once at creation time.
+  function layoutButtons() {
+    var size = buttonSize();
+    [prevButton, nextButton].forEach(function (btn) {
+      btn.style.width = size + 'px';
+      btn.style.height = size + 'px';
+      btn.style.fontSize = Math.round(size * 0.46) + 'px';
+    });
+    nextButton.style.right = '16px';
+    prevButton.style.right = (16 + size + 8) + 'px';
   }
 
   function enabled() {
@@ -167,6 +186,7 @@
 
   function update() {
     ensureButtons();
+    layoutButtons();
     var on = isFeedPage() && enabled();
     prevButton.style.display = on && prevPost() ? 'flex' : 'none';
     nextButton.style.display = on && nextPost() ? 'flex' : 'none';

@@ -20,12 +20,22 @@
     return sc.scrollTop || window.scrollY || 0;
   }
 
-  // Same signal feed_filter.js's isFeedPage() and MainActivity's isBaseFeed already
-  // use — document.title is "Facebook" on the main feed and something else (a post's
-  // own title, "Replies", ...) everywhere else, unlike the URL, which this WebLitePipe
-  // client doesn't reliably change for in-app screen navigation.
+  // Same check feed_filter.js's own isFeedPage() uses — see the long comment there for
+  // why BOTH document.title and location.pathname are required: title alone missed a
+  // post's own permalink page (story.php), which keeps title "Facebook" but changes
+  // the path; pathname alone misses the "Replies" screen, which keeps the path "/"
+  // but changes the title. Only requiring both to agree correctly excludes either.
   function isFeedPage() {
-    return document.title === 'Facebook';
+    return document.title === 'Facebook' && (location.pathname === '/' || location.pathname === '');
+  }
+
+  function buttonSize() {
+    try {
+      var size = window.NativeDisplay ? window.NativeDisplay.getButtonSize() : 52;
+      return size > 0 ? size : 52;
+    } catch (e) {
+      return 52;
+    }
   }
 
   var button = null;
@@ -40,15 +50,12 @@
     button.style.left = '50%';
     button.style.bottom = '16px';
     button.style.transform = 'translateX(-50%)';
-    button.style.width = '52px';
-    button.style.height = '52px';
     button.style.borderRadius = '50%';
     button.style.display = 'none';
     button.style.alignItems = 'center';
     button.style.justifyContent = 'center';
     button.style.background = 'rgba(24,25,26,0.35)';
     button.style.color = '#ffffff';
-    button.style.fontSize = '24px';
     button.style.fontWeight = 'bold';
     button.style.lineHeight = '1';
     button.style.zIndex = '999999';
@@ -86,6 +93,10 @@
   function update() {
     var visible = isFeedPage() && enabled() && currentY() > SHOW_THRESHOLD;
     var el = ensureButton();
+    var size = buttonSize();
+    el.style.width = size + 'px';
+    el.style.height = size + 'px';
+    el.style.fontSize = Math.round(size * 0.46) + 'px';
     el.style.display = visible ? 'flex' : 'none';
   }
 

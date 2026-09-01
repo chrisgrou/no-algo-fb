@@ -71,15 +71,23 @@
   // source only makes sense on the feed itself; a post the user deliberately opened
   // (and its comments) should never be touched.
   //
-  // Checks document.title, not location.pathname: an on-device capture of the
-  // "Replies" screen (opening a comment's own replies) showed the guard doing
-  // nothing there — pathname stayed "/", the same as the main feed — while
-  // document.title had changed to "Replies" (the feed's is plain "Facebook"). This
-  // client evidently pushes "screens" (WebLitePipe's own screenID/topScreenURI
-  // concept, visible in its bootstrap JS) rather than routing through the URL for
-  // at least some of its navigation, so pathname alone can't tell screens apart.
+  // Checks BOTH document.title and location.pathname — neither alone is reliable, and
+  // each catches a case the other misses. An on-device capture of the "Replies"
+  // screen (opening a comment's own replies) showed pathname staying "/", the same as
+  // the main feed, while document.title changed to "Replies" — title alone was
+  // originally enough to tell that case apart. But a second capture, this time of a
+  // post opened as its own permalink page (story.php, its comments visible below it),
+  // showed the *opposite* mismatch: document.title stayed exactly "Facebook" (the
+  // feed's own value) while location.pathname changed to "/story.php" — title alone
+  // was NOT enough there, and the guard let filtering run on that page's comments,
+  // hiding real commenters ("Mark Turchyn", "Matthew Olan", ...) as if they were feed
+  // posts, since a commenter's own name is never in the group/page allow-list. This
+  // client evidently pushes "screens" via more than one mechanism (WebLitePipe's own
+  // screenID/topScreenURI concept for some transitions, a real navigation/URL change
+  // for others), so only requiring both signals to agree correctly excludes every
+  // screen seen doing either kind of transition.
   function isFeedPage() {
-    return document.title === 'Facebook';
+    return document.title === 'Facebook' && (location.pathname === '/' || location.pathname === '');
   }
 
   // Temporary kill switch (Settings → toggles) for isolating whether this guard has
