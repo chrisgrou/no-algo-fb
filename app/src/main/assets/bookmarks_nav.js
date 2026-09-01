@@ -1,7 +1,7 @@
-// Adds a "Ρυθμίσεις" tile to Facebook's own bookmarks/Menu grid (Feature: bookmarks
-// nav) — a second, independent way to reach Settings that doesn't touch the top tab
-// bar at all. Only active on https://www.facebook.com/bookmarks/ (document.title ===
-// "Menu").
+// Adds an "App Settings" tile to Facebook's own bookmarks/Menu grid (Feature:
+// bookmarks nav) — a second, independent way to reach Settings that doesn't touch the
+// top tab bar at all. Only active on https://www.facebook.com/bookmarks/
+// (document.title === "Menu").
 //
 // Same overlay philosophy as nav_override.js: never inserts into Facebook's own
 // [role="list"] grid — an earlier top-bar feature learned the hard way that mutating
@@ -49,26 +49,53 @@
 
   var tile = null;
 
+  // Icon-above-label, left-aligned — the same shape every native tile uses (an icon
+  // badge near the top, the label directly under it), not the single-line
+  // icon-beside-label row this used to be. The badge behind the gear (a plain
+  // rounded-square fill) mirrors how every native tile's own icon is itself a small
+  // colored graphic, not a bare glyph — a plain white gear floating with no badge was
+  // what made this tile visually stick out as "not one of these" rather than blend
+  // in as just another entry.
   function ensureTile() {
     if (tile) return tile;
     tile = document.createElement('div');
     tile.id = '__ffwBookmarksSettingsTile';
     tile.setAttribute('role', 'button');
-    tile.setAttribute('aria-label', 'Ρυθμίσεις εφαρμογής');
+    tile.setAttribute('aria-label', 'App Settings');
     tile.style.position = 'fixed';
     tile.style.display = 'none';
-    tile.style.alignItems = 'center';
-    tile.style.gap = '12px';
+    tile.style.flexDirection = 'column';
+    tile.style.alignItems = 'flex-start';
+    tile.style.justifyContent = 'flex-start';
     tile.style.boxSizing = 'border-box';
-    tile.style.padding = '0 12px';
+    tile.style.paddingTop = '8px';
+    tile.style.paddingLeft = '12px';
     tile.style.borderRadius = '8px';
     tile.style.color = '#f2f4f7';
     tile.style.zIndex = '999999';
-    tile.appendChild(gearSvg());
+
+    var badge = document.createElement('div');
+    badge.style.width = '28px';
+    badge.style.height = '28px';
+    badge.style.flexShrink = '0';
+    badge.style.borderRadius = '8px';
+    badge.style.background = '#606770';
+    badge.style.display = 'flex';
+    badge.style.alignItems = 'center';
+    badge.style.justifyContent = 'center';
+    var svg = gearSvg();
+    svg.setAttribute('width', '16');
+    svg.setAttribute('height', '16');
+    svg.style.color = '#ffffff';
+    badge.appendChild(svg);
+    tile.appendChild(badge);
+
     var label = document.createElement('span');
-    label.textContent = 'Ρυθμίσεις';
+    label.textContent = 'App Settings';
     label.style.fontSize = '15px';
+    label.style.marginTop = '7px';
     tile.appendChild(label);
+
     tile.addEventListener('click', function (e) {
       e.preventDefault();
       e.stopPropagation();
@@ -78,14 +105,16 @@
     return tile;
   }
 
-  // Neither the card's rounded background nor its border are set directly on the
-  // element itself — like the post cards' own "bg-s*" classes, they're drawn via a
-  // ::before pseudo-element consuming CSS custom properties this dump's inline
-  // <style> didn't carry (the rule lives in an external stylesheet). Reading
-  // getComputedStyle's resolved pixel values off a live neighboring tile — including
-  // its ::before, not just the element itself — gets the real rendered color
-  // regardless of how it's implemented, the same reasoning nav_override.js's
-  // backgroundBehind()/dividerBorder() already rely on.
+  // The card's rounded background isn't set directly on the element itself — like the
+  // post cards' own "bg-s*" classes, it's drawn via a ::before pseudo-element
+  // consuming CSS custom properties this dump's inline <style> didn't carry (the rule
+  // lives in an external stylesheet). Reading getComputedStyle's resolved pixel
+  // values off a live neighboring tile — including its ::before, not just the element
+  // itself — gets the real rendered color regardless of how it's implemented, the
+  // same reasoning nav_override.js's backgroundBehind() already relies on. No border
+  // is drawn at all: native tiles' own border is barely visible (~5% white), and a
+  // hardcoded fallback for it was what made this tile visibly outlined next to ones
+  // that aren't.
   function sampleCard() {
     var listItem = document.querySelector('[role="list"] > [role="listitem"]');
     return listItem ? listItem.querySelector('.nb') : null;
@@ -101,8 +130,6 @@
   function styleTileLike(el, sample) {
     var bg = resolvedColor(sample, '::before', 'backgroundColor') || resolvedColor(sample, null, 'backgroundColor');
     el.style.background = bg || '#3a3b3c';
-    var borderColor = resolvedColor(sample, '::before', 'borderColor') || resolvedColor(sample, null, 'borderColor');
-    el.style.border = borderColor ? '1px solid ' + borderColor : '1px solid rgba(255,255,255,0.1)';
   }
 
   // Positions the tile over whatever grid slot comes right after Facebook's own last

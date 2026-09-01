@@ -19,6 +19,7 @@ import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DragHandle
+import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SystemUpdate
@@ -45,6 +46,7 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
@@ -57,27 +59,22 @@ import com.chrisgrou.fbfeedwrapper.update.UpdateViewModel
 
 /**
  * The app's single settings hub: the front screen shows only the gear icon that opens
- * this, and everything else — update checks, importing sources, and the allow-list —
- * is organized here instead of scattered as separate icons over the feed. The
- * allow-list itself lives on its own screen (AllowedSourcesScreen) rather than being
- * inlined here, since it can grow arbitrarily long and isn't a fixed-size setting like
- * the rows above it. Anything beyond the core filtering feature — hide-reactions,
- * hide-suggested, the top-bar icon picker, the return-to-top button — lives under its
- * own "Βελτιώσεις" (Enhancements) screen instead of cluttering this one directly, so
- * new optional extras have one obvious place to land as they're added.
+ * this, and everything else is organized here instead of scattered as separate icons
+ * over the feed. The allow-list and everything else beyond the core filtering feature
+ * — hide-reactions, hide-suggested, the top-bar icon picker, the floating buttons —
+ * live under "Βελτιώσεις" (Enhancements) instead of cluttering this hub directly, so
+ * new optional extras have one obvious place to land as they're added. The update
+ * check sits last: it's the row people touch least often, not the one they need to
+ * find fastest.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
     onBack: () -> Unit,
-    onOpenSync: () -> Unit,
-    onOpenAllowedSources: () -> Unit,
-    onOpenDebug: () -> Unit,
     onOpenEnhancements: () -> Unit,
-    settingsViewModel: SettingsViewModel = viewModel(),
+    onOpenDebug: () -> Unit,
     updateViewModel: UpdateViewModel = viewModel(),
 ) {
-    val allowedPages by settingsViewModel.allowedPages.collectAsState()
     val updateState by updateViewModel.state.collectAsState()
 
     // Without this, the system back gesture has nothing registered to intercept it on
@@ -100,41 +97,28 @@ fun SettingsScreen(
         LazyColumn(Modifier.fillMaxSize().padding(padding)) {
             item {
                 ListItem(
-                    headlineContent = { Text("Έλεγχος για ενημερώσεις") },
-                    supportingContent = {
-                        Text(if (updateState is UpdateState.Checking) "Έλεγχος..." else "Νέα έκδοση από το GitHub")
-                    },
-                    leadingContent = { Icon(Icons.Filled.SystemUpdate, contentDescription = null) },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable(onClick = updateViewModel::checkForUpdate),
-                )
-                ListItem(
-                    headlineContent = { Text("Εισαγωγή από τις ομάδες & σελίδες μου") },
-                    supportingContent = { Text("Σάρωση των ομάδων/σελίδων που ακολουθείς στο Facebook") },
-                    leadingContent = { Icon(Icons.Filled.CloudSync, contentDescription = null) },
-                    modifier = Modifier.fillMaxWidth().clickable(onClick = onOpenSync),
-                )
-                ListItem(
-                    headlineContent = { Text("Επιτρεπόμενες πηγές") },
-                    supportingContent = { Text("${allowedPages.size} ομάδες/σελίδες") },
-                    leadingContent = { Icon(Icons.Filled.List, contentDescription = null) },
-                    trailingContent = { Icon(Icons.Filled.ChevronRight, contentDescription = null) },
-                    modifier = Modifier.fillMaxWidth().clickable(onClick = onOpenAllowedSources),
-                )
-                ListItem(
                     headlineContent = { Text("Βελτιώσεις") },
-                    supportingContent = { Text("Extra features: εμφάνιση/απόκρυψη στοιχείων της οθόνης") },
+                    supportingContent = { Text("Επιτρεπόμενες πηγές, extra κουμπιά, εμφάνιση/απόκρυψη στοιχείων") },
                     leadingContent = { Icon(Icons.Filled.AutoAwesome, contentDescription = null) },
                     trailingContent = { Icon(Icons.Filled.ChevronRight, contentDescription = null) },
                     modifier = Modifier.fillMaxWidth().clickable(onClick = onOpenEnhancements),
                 )
                 ListItem(
                     headlineContent = { Text("Debug") },
-                    supportingContent = { Text("Toggles δοκιμής, στατιστικά φίλτρου, αποστολή dump") },
+                    supportingContent = { Text("Πειραματικά features, toggles δοκιμής, αποστολή dump") },
                     leadingContent = { Icon(Icons.Filled.BugReport, contentDescription = null) },
                     trailingContent = { Icon(Icons.Filled.ChevronRight, contentDescription = null) },
                     modifier = Modifier.fillMaxWidth().clickable(onClick = onOpenDebug),
+                )
+                ListItem(
+                    headlineContent = { Text("Έλεγχος για ενημερώσεις") },
+                    supportingContent = {
+                        Text(if (updateState is UpdateState.Checking) "Έλεγχος..." else "Έλεγχος για νεότερη έκδοση στο GitHub")
+                    },
+                    leadingContent = { Icon(Icons.Filled.SystemUpdate, contentDescription = null) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(onClick = updateViewModel::checkForUpdate),
                 )
             }
         }
@@ -144,18 +128,22 @@ fun SettingsScreen(
 }
 
 /**
- * Every optional, non-core-filtering extra lands here: hide-reactions, hide-suggested,
- * the top-bar icon picker (its own sub-screen, since it lists a dynamic, discovered
- * set of icons rather than being a fixed on/off row), and the floating return-to-top
- * button.
+ * Every optional, non-core-filtering extra lands here: the allow-list itself (its own
+ * sub-screen, since it can grow arbitrarily long and isn't a fixed-size setting),
+ * hide-reactions, hide-suggested, the floating return-to-top/prev-next buttons and
+ * their shared size slider. The top-bar icon picker lives in Debug instead, next to
+ * the toggle that turns the feature it configures on and off — it's still rough
+ * enough that it doesn't belong alongside settled features like these.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun EnhancementsScreen(
     onBack: () -> Unit,
-    onOpenTabIcons: () -> Unit,
+    onOpenAllowedSources: () -> Unit,
     displayPreferences: FeedDisplayPreferences,
+    settingsViewModel: SettingsViewModel = viewModel(),
 ) {
+    val allowedPages by settingsViewModel.allowedPages.collectAsState()
     val hideReactions by displayPreferences.hideReactions.collectAsState()
     val hideSuggested by displayPreferences.hideSuggested.collectAsState()
     val showScrollTopButton by displayPreferences.showScrollTopButton.collectAsState()
@@ -179,15 +167,23 @@ fun EnhancementsScreen(
         LazyColumn(Modifier.fillMaxSize().padding(padding)) {
             item {
                 ListItem(
-                    headlineContent = { Text("Εικονίδια πάνω μπάρας") },
-                    supportingContent = { Text("Επιλογή ποια εικονίδια της μπάρας του Facebook εμφανίζονται") },
-                    leadingContent = { Icon(Icons.Filled.Tab, contentDescription = null) },
+                    headlineContent = { Text("Επιτρεπόμενες πηγές") },
+                    supportingContent = {
+                        Text(
+                            if (allowedPages.isEmpty()) {
+                                "Άδεια λίστα — εμφανίζονται όλα τα posts"
+                            } else {
+                                "${allowedPages.size} ομάδες/σελίδες επιτρέπονται"
+                            },
+                        )
+                    },
+                    leadingContent = { Icon(Icons.Filled.List, contentDescription = null) },
                     trailingContent = { Icon(Icons.Filled.ChevronRight, contentDescription = null) },
-                    modifier = Modifier.fillMaxWidth().clickable(onClick = onOpenTabIcons),
+                    modifier = Modifier.fillMaxWidth().clickable(onClick = onOpenAllowedSources),
                 )
                 ListItem(
                     headlineContent = { Text("Απόκρυψη reactions") },
-                    supportingContent = { Text("Κρύβει τον αριθμό reactions κάτω από posts και σχόλια") },
+                    supportingContent = { Text("Κρύβει τον αριθμό reactions κάτω από κάθε post και σχόλιο") },
                     trailingContent = {
                         Switch(
                             checked = hideReactions,
@@ -198,7 +194,7 @@ fun EnhancementsScreen(
                 )
                 ListItem(
                     headlineContent = { Text("Απόκρυψη \"Suggested for you\"") },
-                    supportingContent = { Text("Κρύβει τις προτεινόμενες ομάδες μέσα στο feed") },
+                    supportingContent = { Text("Κρύβει τις προτεινόμενες ομάδες/σελίδες μέσα στο feed") },
                     trailingContent = {
                         Switch(
                             checked = hideSuggested,
@@ -209,7 +205,9 @@ fun EnhancementsScreen(
                 )
                 ListItem(
                     headlineContent = { Text("Κουμπί επιστροφής στην κορυφή") },
-                    supportingContent = { Text("Ημιδιάφανο κουμπί κάτω στη μέση του feed, μετά από λίγο scroll") },
+                    supportingContent = {
+                        Text("Ημιδιάφανο κουμπί κάτω στη μέση, μετά από λίγο scroll στο βασικό feed")
+                    },
                     trailingContent = {
                         Switch(
                             checked = showScrollTopButton,
@@ -220,7 +218,7 @@ fun EnhancementsScreen(
                 )
                 ListItem(
                     headlineContent = { Text("Κουμπιά προηγούμενο/επόμενο post") },
-                    supportingContent = { Text("Ημιδιάφανα κουμπιά κάτω δεξιά στο feed") },
+                    supportingContent = { Text("Ημιδιάφανα κουμπιά κάτω δεξιά, μόνο στο βασικό feed") },
                     trailingContent = {
                         Switch(
                             checked = showPostNavButtons,
@@ -261,6 +259,7 @@ fun EnhancementsScreen(
 @Composable
 fun DebugScreen(
     onBack: () -> Unit,
+    onOpenTabIcons: () -> Unit,
     debugToggles: DebugToggles,
 ) {
     val feedScopeEnabled by debugToggles.feedScopeEnabled.collectAsState()
@@ -313,20 +312,23 @@ fun DebugScreen(
                     modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 4.dp),
                 )
                 ListItem(
-                    headlineContent = { Text("Τροποποίηση πάνω μπάρας") },
+                    headlineContent = { Text("Εικονίδια πάνω μπάρας") },
                     supportingContent = {
                         Text(
                             "Δικό μας εικονίδιο Ρυθμίσεων + κρύψιμο/σειρά εικονιδίων στη μπάρα " +
-                                "του Facebook. Απενεργοποιημένο από προεπιλογή — ακόμα σε δοκιμή.",
+                                "του Facebook. Πάτα για να ρυθμίσεις ποια εικονίδια φαίνονται — το " +
+                                "διακόπτης ενεργοποιεί ολόκληρο το feature, ακόμα σε δοκιμή, " +
+                                "απενεργοποιημένο από προεπιλογή.",
                         )
                     },
+                    leadingContent = { Icon(Icons.Filled.Tab, contentDescription = null) },
                     trailingContent = {
                         Switch(
                             checked = topBarModEnabled,
                             onCheckedChange = debugToggles::setTopBarModEnabled,
                         )
                     },
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().clickable(onClick = onOpenTabIcons),
                 )
                 ListItem(
                     headlineContent = { Text("Φιλτράρισμα μόνο στο βασικό feed") },
@@ -491,13 +493,18 @@ fun TabIconsScreen(
 }
 
 /**
- * The allow-list itself, split out from SettingsScreen so the fixed-size hub (update
- * check, sync entry point) isn't buried under a list of arbitrary, growing length.
+ * The allow-list itself, plus the entry point for scanning it in from Facebook's own
+ * groups/pages lists (SourceSyncScreen) — the two used to be separate rows in the main
+ * Settings hub, but importing only ever makes sense as a way of filling out this exact
+ * list, so it lives here now as an action on this screen instead. Split out from
+ * EnhancementsScreen so the fixed-size list of toggles up there isn't buried under a
+ * list of arbitrary, growing length.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AllowedSourcesScreen(
     onBack: () -> Unit,
+    onOpenSync: () -> Unit,
     settingsViewModel: SettingsViewModel = viewModel(),
 ) {
     val allowedPages by settingsViewModel.allowedPages.collectAsState()
@@ -515,40 +522,69 @@ fun AllowedSourcesScreen(
                         Icon(Icons.Filled.ArrowBack, contentDescription = "Πίσω")
                     }
                 },
+                actions = {
+                    IconButton(onClick = onOpenSync) {
+                        Icon(Icons.Filled.CloudSync, contentDescription = "Εισαγωγή από τις ομάδες/σελίδες μου")
+                    }
+                },
             )
         },
     ) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding)) {
             item {
                 Text(
-                    "Μόνο posts από ομάδες/σελίδες σε αυτή τη λίστα θα εμφανίζονται στο feed, " +
-                        "ανεξάρτητα από το ποιος τα δημοσίευσε. Άδεια λίστα = εμφανίζονται όλα.\n\n" +
-                        "Γράψε το όνομα ακριβώς όπως εμφανίζεται στην πρώτη γραμμή του post. " +
-                        "Πάτα σε μια καταχώρηση για να την επεξεργαστείς.",
+                    "Μόνο posts από ομάδες/σελίδες σε αυτή τη λίστα εμφανίζονται στο feed, " +
+                        "ανεξάρτητα από το ποιος τα δημοσίευσε — άδεια λίστα σημαίνει ότι " +
+                        "εμφανίζονται όλα. Πρόσθεσε μία-μία παρακάτω, ή πάτα το εικονίδιο " +
+                        "πάνω δεξιά για να τις σαρώσεις κατευθείαν από τις ομάδες/σελίδες " +
+                        "που ήδη ακολουθείς στο Facebook.",
                     style = MaterialTheme.typography.bodyMedium,
                     modifier = Modifier.padding(16.dp),
                 )
-                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
                     OutlinedTextField(
                         value = newPageName,
                         onValueChange = { newPageName = it },
                         label = { Text("Όνομα ομάδας ή σελίδας") },
+                        singleLine = true,
                         modifier = Modifier.weight(1f),
                     )
-                    TextButton(onClick = {
-                        if (newPageName.isNotBlank()) {
-                            settingsViewModel.addPage(newPageName)
-                            newPageName = ""
-                        }
-                    }) {
+                    TextButton(
+                        onClick = {
+                            if (newPageName.isNotBlank()) {
+                                settingsViewModel.addPage(newPageName)
+                                newPageName = ""
+                            }
+                        },
+                        enabled = newPageName.isNotBlank(),
+                    ) {
                         Text("Προσθήκη")
                     }
+                }
+                if (allowedPages.isNotEmpty()) {
+                    Text(
+                        "${allowedPages.size} πηγές — πάτα σε μία για να την επεξεργαστείς",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 16.dp, top = 8.dp, bottom = 4.dp),
+                    )
+                } else {
+                    Text(
+                        "Δεν έχεις προσθέσει καμία πηγή ακόμα.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(16.dp),
+                    )
                 }
             }
 
             items(allowedPages.sorted()) { name ->
                 ListItem(
                     headlineContent = { Text(name) },
+                    leadingContent = { Icon(Icons.Filled.Groups, contentDescription = null) },
                     trailingContent = {
                         IconButton(onClick = { settingsViewModel.removePage(name) }) {
                             Icon(Icons.Filled.Delete, contentDescription = "Αφαίρεση")

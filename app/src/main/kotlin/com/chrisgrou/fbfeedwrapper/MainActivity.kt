@@ -150,36 +150,36 @@ private fun App(
         )
         Screen.Settings -> SettingsScreen(
             onBack = { screen = Screen.Feed },
-            onOpenSync = { screen = Screen.Sync },
-            onOpenAllowedSources = { screen = Screen.AllowedSources },
-            onOpenDebug = { screen = Screen.Debug },
             onOpenEnhancements = { screen = Screen.Enhancements },
-            settingsViewModel = settingsViewModel,
+            onOpenDebug = { screen = Screen.Debug },
             updateViewModel = updateViewModel,
         )
         Screen.Sync -> SourceSyncScreen(
-            onCancel = { screen = Screen.Settings },
+            onCancel = { screen = Screen.AllowedSources },
             onConfirm = { names ->
                 settingsViewModel.addPages(names)
-                screen = Screen.Settings
+                screen = Screen.AllowedSources
             },
         )
         Screen.AllowedSources -> AllowedSourcesScreen(
-            onBack = { screen = Screen.Settings },
+            onBack = { screen = Screen.Enhancements },
+            onOpenSync = { screen = Screen.Sync },
             settingsViewModel = settingsViewModel,
         )
         Screen.Debug -> DebugScreen(
             onBack = { screen = Screen.Settings },
+            onOpenTabIcons = { screen = Screen.TabIcons },
             debugToggles = debugToggles,
         )
         Screen.TabIcons -> TabIconsScreen(
-            onBack = { screen = Screen.Enhancements },
+            onBack = { screen = Screen.Debug },
             tabPreferences = tabPreferences,
         )
         Screen.Enhancements -> EnhancementsScreen(
             onBack = { screen = Screen.Settings },
-            onOpenTabIcons = { screen = Screen.TabIcons },
+            onOpenAllowedSources = { screen = Screen.AllowedSources },
             displayPreferences = displayPreferences,
+            settingsViewModel = settingsViewModel,
         )
     }
 }
