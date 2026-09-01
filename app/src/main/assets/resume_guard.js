@@ -32,6 +32,10 @@
     if (log.length > LOG_CAP) log.shift();
   }
 
+  // Shared with scroll_position.js so a resume shows its scroll bookkeeping inline
+  // with the events that triggered it, in one ordered timeline.
+  window.__ffwLog = record;
+
   // Read fresh on every event rather than captured once, so flipping the Debug kill
   // switch takes effect without a reload — and so the log keeps recording either way.
   function enabled() {

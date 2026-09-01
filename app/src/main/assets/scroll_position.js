@@ -30,24 +30,83 @@
     window.scrollTo(0, y);
   }
 
+  function log(msg) {
+    if (window.__ffwLog) window.__ffwLog('scroll: ' + msg);
+  }
+
+  function reachable() {
+    var sc = scroller();
+    return sc.scrollHeight - sc.clientHeight;
+  }
+
+  // The offset we believe the user actually chose, as opposed to whatever the browser
+  // currently reports. They diverge on resume — see restoreAfterResume() below.
+  var lastGoodY = 0;
+  // While set, incoming scroll events are neither trusted nor saved: they're the
+  // page settling itself, not the user moving.
+  var holdUntil = 0;
+
   var saveTimer = null;
   function scheduleSave() {
     if (saveTimer) return;
     saveTimer = setTimeout(function () {
       saveTimer = null;
-      window.NativeScroll && window.NativeScroll.saveScrollY(currentY());
+      window.NativeScroll && window.NativeScroll.saveScrollY(lastGoodY);
     }, 400);
   }
 
   // capture:true so this catches scroll events on the internal vscroller element too:
   // 'scroll' doesn't bubble, but a capturing listener on window still sees it on the
   // way down to the actual target.
-  window.addEventListener('scroll', scheduleSave, { passive: true, capture: true });
+  window.addEventListener('scroll', function () {
+    if (Date.now() < holdUntil) return;
+    lastGoodY = currentY();
+    scheduleSave();
+  }, { passive: true, capture: true });
+
+  // A real finger on the screen ends any restore in progress: past that point the user
+  // is choosing where to be, and fighting them would be worse than losing the offset.
+  window.addEventListener('touchstart', function () {
+    if (Date.now() < holdUntil) {
+      holdUntil = 0;
+      log('restore cancelled by touch at ' + Math.round(currentY()));
+    }
+  }, { passive: true, capture: true });
 
   var saved = 0;
   try {
     saved = parseFloat(window.NativeScroll.getSavedScrollY()) || 0;
   } catch (e) {}
+  lastGoodY = saved;
+
+  // Called natively from MainActivity.onResume(). The page is never reloaded across a
+  // backgrounding (confirmed on-device: the resume log shows one "load type=navigate"
+  // spanning several resumes), yet the feed still comes back at the top — because the
+  // feed is a virtualized scroller. Frozen, it drops its off-screen rows; on resume its
+  // scrollHeight briefly collapses and the browser clamps scrollTop to what's left,
+  // i.e. 0. That clamp then fires a scroll event, which is how the saved offset used to
+  // get overwritten with 0 as well, losing it for good.
+  //
+  // So: hold the saver off, and keep re-asserting the pre-background offset until the
+  // rows stream back in far enough to reach it — the same "only jump once reachable
+  // covers the target" rule the cold-start restore below already follows, just repeated,
+  // since there's no telling which relayout the clamp lands on.
+  window.__ffwRestoreScroll = function () {
+    var target = lastGoodY;
+    log('resume: target=' + Math.round(target) + ' at=' + Math.round(currentY()) +
+      ' reachable=' + Math.round(reachable()));
+    if (target <= 50) return;
+
+    holdUntil = Date.now() + 4000;
+    (function reassert() {
+      if (Date.now() >= holdUntil) {
+        log('resume: settled at ' + Math.round(currentY()) + ' target=' + Math.round(target));
+        return;
+      }
+      if (reachable() >= target && Math.abs(currentY() - target) > 4) setY(target);
+      setTimeout(reassert, 250);
+    })();
+  };
 
   // Temporary kill switch (Settings → toggles) for isolating whether this fix has
   // anything to do with a separate, still-unsolved bug (Facebook's own top tab bar
