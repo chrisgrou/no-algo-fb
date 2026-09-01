@@ -19,9 +19,14 @@
     return document.querySelector('[data-type="vscroller"]') || document.scrollingElement || document.body;
   }
 
+  // Whichever of the vscroller and the window is actually carrying the scroll offset
+  // right now — not assumed to always be the same one. An on-device trace caught the
+  // vscroller reporting scrollTop=0 while window.scrollY correctly held the real
+  // position (that DIV wasn't a real overflow container in that state), so this reads
+  // both and trusts whichever is actually nonzero rather than favoring one by default.
   function currentY() {
     var sc = scroller();
-    return sc.scrollTop || window.scrollY || 0;
+    return Math.max(sc.scrollTop || 0, window.scrollY || 0);
   }
 
   function setY(y) {
@@ -34,9 +39,22 @@
     if (window.__ffwLog) window.__ffwLog('scroll: ' + msg);
   }
 
+  // How far down the page can actually be scrolled right now. Not just the vscroller's
+  // own scrollHeight - clientHeight: an on-device trace caught scroller() resolving to
+  // a DIV whose scrollHeight and clientHeight were within 2px of each other (35818 vs
+  // 35816) — a block sized to fit all of its own content, not a real overflow
+  // container — while window.scrollY sat at the correct, already-restored offset the
+  // whole time. That vscroller-only reading called the page "unreachable" when it very
+  // much wasn't, which is what let __ffwRestoreScroll below drag a perfectly good
+  // position down to 0. Taking the max of both readings means an actually-scrollable
+  // vscroller (the case this was originally written for) still works, while a page
+  // that scrolls at the document level instead — this trace's actual case — isn't
+  // penalized for the vscroller marker not being where the scrolling happens.
   function reachable() {
     var sc = scroller();
-    return sc.scrollHeight - sc.clientHeight;
+    var viaScroller = sc.scrollHeight - sc.clientHeight;
+    var viaDocument = document.documentElement.scrollHeight - window.innerHeight;
+    return Math.max(viaScroller, viaDocument, 0);
   }
 
   // The offset we believe the user actually chose, as opposed to whatever the browser
@@ -121,6 +139,16 @@
     var tick = 0;
     (function reassert() {
       tick++;
+      // Checked first, before anything below can call setY: an on-device trace caught
+      // the browser already sitting exactly on target the instant this ran (the page
+      // was never actually disturbed), and a stale reachable() reading below that
+      // target dragged a perfectly good position down anyway. Nothing to fix if
+      // there's nothing wrong — leave it alone rather than risk moving it.
+      if (Math.abs(currentY() - target) <= 4) {
+        holdUntil = Date.now();
+        log('resume: already at target (' + Math.round(currentY()) + '), nothing to do');
+        return;
+      }
       if (Date.now() >= holdUntil) {
         log('resume: settled at ' + Math.round(currentY()) + ' target=' + Math.round(target) +
           ' | ' + scrollerDebug());
@@ -129,17 +157,12 @@
       var safe = Math.min(target, reachable());
       if (safe > 0 && Math.abs(currentY() - safe) > 4) setY(safe);
       // Every ~640ms (8 ticks * 80ms), not every tick — the 6s hold is ~75 ticks, and
-      // the shared log only keeps the last 40 entries, so per-tick logging would push
+      // the shared log only keeps the last entries, so per-tick logging would push
       // everything before it (including the "resume:" start line) out before this even
       // finishes.
       if (tick % 8 === 0) {
         log('resume: tick target=' + Math.round(target) + ' at=' + Math.round(currentY()) +
           ' safe=' + Math.round(safe) + ' | ' + scrollerDebug());
-      }
-      if (Math.abs(currentY() - target) <= 4) {
-        holdUntil = Date.now();
-        log('resume: reached target early at ' + Math.round(currentY()));
-        return;
       }
       setTimeout(reassert, 80);
     })();
