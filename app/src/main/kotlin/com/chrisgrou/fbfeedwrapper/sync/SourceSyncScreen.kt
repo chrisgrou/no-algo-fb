@@ -46,7 +46,9 @@ import androidx.compose.ui.viewinterop.AndroidView
 
 /**
  * Lets the user browse to whichever list they want imported — their groups, their
- * followed pages — and scan it on demand.
+ * followed pages, their friends — and scan it on demand. The allow-list this feeds
+ * isn't actually limited to groups/pages (feed_filter.js matches a post's own first
+ * link text either way), so a friends list scans in exactly the same way.
  *
  * An earlier version drove itself through two hardcoded URLs and reported five browser
  * names: www.facebook.com had served an "open in the app" interstitial rather than the
@@ -183,7 +185,8 @@ private fun SyncControls(
             if (scanning) {
                 "Σάρωση... scroll $scanRounds · βρέθηκαν $scanFound"
             } else {
-                "Πήγαινε στη λίστα με τις ομάδες ή τις σελίδες σου και πάτα σάρωση. " +
+                "Πήγαινε στη λίστα με τις ομάδες, τις σελίδες ή τους φίλους σου και πάτα " +
+                    "σάρωση — δουλεύει σε οποιαδήποτε τέτοια λίστα του Facebook. " +
                     "Μαζεμένα μέχρι τώρα: $collectedCount"
             },
             color = Color.White,
@@ -213,7 +216,8 @@ private fun ResultList(
 ) {
     Column(Modifier.fillMaxSize()) {
         Text(
-            "Ξεδιάλεξε ό,τι δεν είναι ομάδα ή σελίδα — η σάρωση πιάνει και στοιχεία μενού.",
+            "Ομάδες, σελίδες και άτομα είναι όλα έγκυρα — απλά ξεδιάλεξε ό,τι δεν είναι " +
+                "καθόλου πηγή (η σάρωση πιάνει και στοιχεία μενού).",
             modifier = Modifier.padding(16.dp),
         )
         TextButton(

@@ -173,7 +173,7 @@ fun EnhancementsScreen(
                             if (allowedPages.isEmpty()) {
                                 "Άδεια λίστα — εμφανίζονται όλα τα posts"
                             } else {
-                                "${allowedPages.size} ομάδες/σελίδες επιτρέπονται"
+                                "${allowedPages.size} ομάδες, σελίδες ή άτομα επιτρέπονται"
                             },
                         )
                     },
@@ -499,6 +499,12 @@ fun TabIconsScreen(
  * list, so it lives here now as an action on this screen instead. Split out from
  * EnhancementsScreen so the fixed-size list of toggles up there isn't buried under a
  * list of arbitrary, growing length.
+ *
+ * Despite the name, an entry here isn't limited to a group or page: feed_filter.js
+ * matches whatever text sits in a post's own first link, which for a friend's post
+ * that isn't shared through a group is that friend's own name — so adding a person's
+ * name works exactly the same way. The copy on this screen says so explicitly rather
+ * than leaving "sources" to imply groups/pages only.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -524,7 +530,7 @@ fun AllowedSourcesScreen(
                 },
                 actions = {
                     IconButton(onClick = onOpenSync) {
-                        Icon(Icons.Filled.CloudSync, contentDescription = "Εισαγωγή από τις ομάδες/σελίδες μου")
+                        Icon(Icons.Filled.CloudSync, contentDescription = "Εισαγωγή από ομάδες, σελίδες ή φίλους")
                     }
                 },
             )
@@ -533,11 +539,13 @@ fun AllowedSourcesScreen(
         LazyColumn(Modifier.fillMaxSize().padding(padding)) {
             item {
                 Text(
-                    "Μόνο posts από ομάδες/σελίδες σε αυτή τη λίστα εμφανίζονται στο feed, " +
+                    "Μόνο posts από όσα βρίσκονται σε αυτή τη λίστα εμφανίζονται στο feed, " +
                         "ανεξάρτητα από το ποιος τα δημοσίευσε — άδεια λίστα σημαίνει ότι " +
-                        "εμφανίζονται όλα. Πρόσθεσε μία-μία παρακάτω, ή πάτα το εικονίδιο " +
-                        "πάνω δεξιά για να τις σαρώσεις κατευθείαν από τις ομάδες/σελίδες " +
-                        "που ήδη ακολουθείς στο Facebook.",
+                        "εμφανίζονται όλα. Δεν είναι μόνο ομάδες και σελίδες: μπορείς να " +
+                        "προσθέσεις και το όνομα ενός συγκεκριμένου φίλου/ατόμου που " +
+                        "ακολουθείς, με τον ίδιο ακριβώς τρόπο. Πρόσθεσε μία-μία παρακάτω, ή " +
+                        "πάτα το εικονίδιο πάνω δεξιά για να σαρώσεις κατευθείαν από μια " +
+                        "λίστα του Facebook (ομάδες, σελίδες ή φίλοι).",
                     style = MaterialTheme.typography.bodyMedium,
                     modifier = Modifier.padding(16.dp),
                 )
@@ -548,7 +556,7 @@ fun AllowedSourcesScreen(
                     OutlinedTextField(
                         value = newPageName,
                         onValueChange = { newPageName = it },
-                        label = { Text("Όνομα ομάδας ή σελίδας") },
+                        label = { Text("Όνομα ομάδας, σελίδας ή ατόμου") },
                         singleLine = true,
                         modifier = Modifier.weight(1f),
                     )
@@ -626,7 +634,7 @@ private fun EditSourceDialog(
             OutlinedTextField(
                 value = text,
                 onValueChange = { text = it },
-                label = { Text("Όνομα ομάδας ή σελίδας") },
+                label = { Text("Όνομα ομάδας, σελίδας ή ατόμου") },
                 modifier = Modifier.fillMaxWidth(),
             )
         },
