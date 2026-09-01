@@ -13,6 +13,7 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
@@ -322,11 +323,13 @@ private fun FbWebViewScreen(
         // icon stays floating, though — its whole point is capturing whatever screen
         // the bug is actually on (e.g. the Replies pagination issue), which a button
         // buried inside Settings can't do since navigating there leaves that screen.
-        // Toggleable now (Settings → Debug) rather than always shown.
+        // Toggleable now (Settings → Debug) rather than always shown. Offset down and
+        // in from the corner — flush top-end sat right on top of Facebook's own
+        // search/menu icons in that same corner.
         if (BuildConfig.DEBUG && debugButtonEnabled) {
             IconButton(
                 onClick = onDebugDump,
-                modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
+                modifier = Modifier.align(Alignment.TopEnd).padding(8.dp).offset(x = (-40).dp, y = 48.dp),
             ) {
                 Icon(
                     imageVector = Icons.Filled.ContentCopy,

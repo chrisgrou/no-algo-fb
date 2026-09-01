@@ -55,12 +55,21 @@
     return out;
   }
 
+  // Writes the scroll to both the vscroller element and window, same as
+  // scroll_to_top.js's own click handler — which one is actually the live scrolling
+  // entity here has never been pinned down with certainty (a fresh capture confirmed
+  // window.scrollY moves as expected, but that doesn't rule out the vscroller's own
+  // scrollTop being the inert one, or vice versa), and scroll_to_top.js's identical
+  // dual-write is the one part of this app already confirmed working on-device.
+  // getBoundingClientRect().top is always viewport-relative regardless of which
+  // element actually owns the scroll, so the same delta applies to both.
   function scrollToPost(post) {
     var sc = scroller();
     var delta = post.getBoundingClientRect().top - contentTop();
-    var target = sc.scrollTop + delta;
-    if (sc.scrollTo) sc.scrollTo({ top: target, behavior: 'smooth' });
-    else sc.scrollTop = target;
+    var scTarget = sc.scrollTop + delta;
+    if (sc.scrollTo) sc.scrollTo({ top: scTarget, behavior: 'smooth' });
+    else sc.scrollTop = scTarget;
+    window.scrollTo({ top: window.scrollY + delta, behavior: 'smooth' });
   }
 
   // First post below the visible content top — the post already aligned there has
