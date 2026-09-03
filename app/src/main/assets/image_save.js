@@ -1,11 +1,18 @@
-// Long-press-to-save for images. Not relying on Android WebView's own native
-// long-press detection: an on-device test found it never fired at all on a Facebook
-// photo, most likely because Facebook's own photo viewer calls preventDefault() on
-// touchstart for its pinch/zoom/swipe gestures — which stops the platform's gesture
-// detector from ever recognizing the touch as a long press to begin with, regardless
-// of what a native View.OnLongClickListener is set up to do. This detects the hold
-// itself in JS instead, on capture-phase passive listeners so it sees every touch
-// before the page's own handlers can consume it, and works the same either way.
+// Image saving: two independent triggers feeding one save path.
+//
+// 1. Facebook's own "..." menu Save button — handled below by intercepting the click
+//    on the hidden download anchor Facebook's JS creates for it (see the comment where
+//    that listener is installed for how an on-device DOM capture found it and why
+//    intercepting the click, not the resulting download, is what actually works).
+// 2. A long-press on an image, for when there's no such button to begin with. Not
+//    relying on Android WebView's own native long-press detection: an on-device test
+//    found it never fired at all on a Facebook photo, most likely because Facebook's
+//    own photo viewer calls preventDefault() on touchstart for its pinch/zoom/swipe
+//    gestures — which stops the platform's gesture detector from ever recognizing the
+//    touch as a long press to begin with, regardless of what a native
+//    View.OnLongClickListener is set up to do. This detects the hold itself in JS
+//    instead, on capture-phase passive listeners so it sees every touch before the
+//    page's own handlers can consume it, and works the same either way.
 (function () {
   if (window.__ffwImageSaveInstalled) return;
   window.__ffwImageSaveInstalled = true;
@@ -157,10 +164,34 @@
       });
   }
 
-  // Exposed for MainActivity's setDownloadListener to call into when Facebook's own
-  // "Save" button (the "..." menu) hands it a blob:/data: URL too — same problem,
-  // same fix, just triggered from the native side instead of a long-press.
+  // Exposed for MainActivity's setDownloadListener to call into as a last-resort catch
+  // — see the click interceptor below for why it's no longer the primary path.
   window.__ffwResolveImageForSave = resolveAndSend;
+
+  // The actual fix for the "..." menu's Save button: an on-device capture of the live
+  // DOM, taken while its own menu was still open, found exactly how Facebook triggers
+  // it — a hidden anchor it creates on demand: <a style="display:none" download="…"
+  // href="blob:…"></a>, presumably clicked programmatically (anchor.click()) to start
+  // the browser's native download. By the time WebView's onDownloadStart notices that
+  // and this page's own JS gets asked (via __ffwResolveImageForSave above) to fetch
+  // the same blob: URL again, it's already unusable — every on-device trace failed in
+  // 2-3ms, far too fast to be a real timing race, pointing at WebView releasing
+  // whatever let a fresh fetch() resolve it as soon as it hands the URL off to its own
+  // download pipeline. A synthetic click still dispatches as a real, trusted click
+  // event through the normal DOM flow, so catching it here — before the browser ever
+  // treats it as a download at all — reaches the blob while it's still definitely
+  // good, and preventDefault() stops the native download from starting a second,
+  // doomed attempt via setDownloadListener.
+  document.addEventListener('click', function (e) {
+    var target = e.target;
+    if (!target || target.tagName !== 'A' || !target.hasAttribute('download')) return;
+    var href = target.getAttribute('href') || '';
+    if (href.indexOf('blob:') !== 0 && href.indexOf('data:') !== 0) return;
+    log('intercepted download anchor click: ' + href.substring(0, 60));
+    e.preventDefault();
+    e.stopPropagation();
+    resolveAndSend(href);
+  }, true);
 
   function cancel() {
     if (timer) {
