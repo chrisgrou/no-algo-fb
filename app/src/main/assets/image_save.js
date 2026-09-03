@@ -46,6 +46,27 @@
     return match ? match[1] : null;
   }
 
+  // Logs what was actually AT the touch point when neither check above matched —
+  // an on-device trace found a real case of this (a full-screen photo view, reported
+  // as long-press doing nothing there) where the debug dump's own separate HTML
+  // capture couldn't help explain it: by the time that capture ran, the screen had
+  // already changed back to something else, showing a different DOM entirely.
+  // Logging the stack right here, in the moment the touch itself happened, doesn't
+  // have that problem — it's already in the shared timeline before anything else can
+  // change.
+  function describeStack(stack) {
+    var parts = [];
+    for (var i = 0; i < Math.min(stack.length, 6); i++) {
+      var el = stack[i];
+      if (!el) continue;
+      var desc = el.tagName;
+      if (el.id) desc += '#' + el.id;
+      if (el.className && typeof el.className === 'string') desc += '.' + el.className.split(' ').join('.');
+      parts.push(desc);
+    }
+    return parts.join(' > ');
+  }
+
   function imageUrlAt(x, y) {
     var stack = document.elementsFromPoint ? document.elementsFromPoint(x, y) : [document.elementFromPoint(x, y)];
     for (var i = 0; i < stack.length; i++) {
@@ -55,6 +76,27 @@
       var bgUrl = backgroundImageUrl(el);
       if (bgUrl) return bgUrl;
     }
+    // Broad fallback: some element on screen right now is showing a blob: image (the
+    // "..." menu's own Save button proved one exists whenever a photo is open — see
+    // MainActivity's setDownloadListener log) even if it isn't exactly under this
+    // touch point, e.g. because of how a pinch/zoom transform or an invisible gesture
+    // layer positions things. Picking the largest on-screen blob <img> is a reasonable
+    // guess at "the photo being viewed" when the precise point-based search comes up
+    // empty.
+    var blobImgs = document.querySelectorAll('img[src^="blob:"]');
+    var best = null;
+    var bestArea = 0;
+    for (var j = 0; j < blobImgs.length; j++) {
+      var rect = blobImgs[j].getBoundingClientRect();
+      var area = rect.width * rect.height;
+      if (area > bestArea) {
+        bestArea = area;
+        best = blobImgs[j];
+      }
+    }
+    if (best) return best.src;
+
+    log('nothing matched at point; stack=[' + describeStack(stack) + '] blobImgCount=' + blobImgs.length);
     return null;
   }
 
