@@ -1,7 +1,10 @@
 package com.chrisgrou.fbfeedwrapper
 
+import android.Manifest
 import android.annotation.SuppressLint
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.view.ViewGroup
 import android.webkit.CookieManager
@@ -11,6 +14,7 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -35,6 +39,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.chrisgrou.fbfeedwrapper.debug.DUMP_FILTER_REPORT_JS
 import com.chrisgrou.fbfeedwrapper.debug.DUMP_NAV_REPORT_JS
@@ -43,6 +48,7 @@ import com.chrisgrou.fbfeedwrapper.debug.shareHtmlDump
 import com.chrisgrou.fbfeedwrapper.filter.FeedFilterBridge
 import com.chrisgrou.fbfeedwrapper.history.HistoryScreen
 import com.chrisgrou.fbfeedwrapper.history.PostHistoryPreferences
+import com.chrisgrou.fbfeedwrapper.media.MediaDownloader
 import com.chrisgrou.fbfeedwrapper.nav.NavigationBridge
 import com.chrisgrou.fbfeedwrapper.scroll.ScrollPositionBridge
 import com.chrisgrou.fbfeedwrapper.settings.AllowedSourcesScreen
@@ -56,6 +62,11 @@ import com.chrisgrou.fbfeedwrapper.settings.TabIconsScreen
 import com.chrisgrou.fbfeedwrapper.settings.TabPreferences
 import com.chrisgrou.fbfeedwrapper.sync.SourceSyncScreen
 import com.chrisgrou.fbfeedwrapper.update.UpdateViewModel
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import org.json.JSONTokener
 
 private const val FEED_URL = "https://m.facebook.com"
@@ -72,6 +83,18 @@ class MainActivity : ComponentActivity() {
 
     private var webView: WebView? = null
     private var restoredState: Bundle? = null
+    private val activityScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+
+    // Only ever needed below API 29 (see the manifest's own maxSdkVersion note) — a
+    // launcher has to be registered before the Activity reaches STARTED, so this lives
+    // here as a property rather than being created on demand inside saveImage().
+    private var pendingImageUrl: String? = null
+    private val storagePermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            val url = pendingImageUrl
+            pendingImageUrl = null
+            if (granted && url != null) saveImage(url)
+        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -82,6 +105,7 @@ class MainActivity : ComponentActivity() {
                 restoredState = restoredState,
                 onWebViewCreated = { webView = it },
                 onDebugDump = ::captureDebugDump,
+                onSaveImage = ::saveImage,
             )
         }
     }
@@ -126,7 +150,30 @@ class MainActivity : ComponentActivity() {
             view.destroy()
         }
         webView = null
+        activityScope.cancel()
         super.onDestroy()
+    }
+
+    // Reachable from a long-press on an image (see createFeedWebView's
+    // setOnLongClickListener) and from WebView.setDownloadListener catching a real HTTP
+    // image download Facebook's own UI triggered — either way this is the single path
+    // that actually writes the file, via MediaDownloader.
+    private fun saveImage(url: String) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) !=
+                PackageManager.PERMISSION_GRANTED
+        ) {
+            pendingImageUrl = url
+            storagePermissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+            return
+        }
+
+        Toast.makeText(this, "Αποθήκευση εικόνας...", Toast.LENGTH_SHORT).show()
+        activityScope.launch {
+            val result = MediaDownloader.saveImage(this@MainActivity, url)
+            val message = if (result.isSuccess) "Η εικόνα αποθηκεύτηκε στη Συλλογή" else "Αποτυχία αποθήκευσης εικόνας"
+            Toast.makeText(this@MainActivity, message, Toast.LENGTH_SHORT).show()
+        }
     }
 
     // Held here (Activity-scoped), not in FbWebViewScreen's own composable state, so
@@ -166,6 +213,7 @@ private fun App(
     restoredState: Bundle?,
     onWebViewCreated: (WebView) -> Unit,
     onDebugDump: () -> Unit,
+    onSaveImage: (String) -> Unit,
 ) {
     var screen by remember { mutableStateOf(Screen.Feed) }
     // Activity-scoped, so results (list edits, sync imports, an update check) land
@@ -213,6 +261,7 @@ private fun App(
             historyPreferences = historyPreferences,
             onHistoryChanged = { canGoBack = it.canGoBack() },
             onBaseFeedChanged = { isBaseFeed = it },
+            onSaveImage = onSaveImage,
         )
     }
     LaunchedEffect(webView) { onWebViewCreated(webView) }
@@ -295,6 +344,7 @@ private fun createFeedWebView(
     historyPreferences: PostHistoryPreferences,
     onHistoryChanged: (WebView) -> Unit,
     onBaseFeedChanged: (Boolean) -> Unit,
+    onSaveImage: (String) -> Unit,
 ): WebView {
     // Lets `chrome://inspect` on a USB-connected desktop attach DevTools to this
     // WebView's live, authenticated session — the only practical way to read
@@ -335,6 +385,40 @@ private fun createFeedWebView(
             override fun onReceivedTitle(view: WebView, title: String?) {
                 val path = runCatching { Uri.parse(view.url).path }.getOrNull()
                 onBaseFeedChanged(title == "Facebook" && (path == "/" || path.isNullOrEmpty()))
+            }
+        }
+
+        // Catches a real HTTP download Facebook's own UI triggers directly (an
+        // unrenderable mimetype, or a Content-Disposition: attachment response) — a
+        // secondary path alongside the long-press handler below, since a browser
+        // "download" started via a blob: URL and a synthetic <a download> click, which
+        // is how some of Facebook's own "Save" buttons work, never reaches this
+        // callback at all (a known WebView limitation, not something to work around
+        // from here). Video isn't handled yet — PROJECT_CONTENT.md's own roadmap keeps
+        // it as a separate, later step.
+        setDownloadListener { url, _, _, mimetype, _ ->
+            if (mimetype.startsWith("image/")) {
+                onSaveImage(url)
+            } else {
+                Toast.makeText(context, "Η αποθήκευση υποστηρίζει προς το παρόν μόνο εικόνες", Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        // The reliable path: works straight off the DOM's own <img src>, independent
+        // of whichever mechanism (if any) Facebook's own "Save" UI actually uses.
+        // Consumed (returns true) only for an actual image hit — anything else falls
+        // through to the WebView's normal long-press handling (text selection, etc.).
+        setOnLongClickListener {
+            val target = hitTestResult
+            val imageUrl = when (target.type) {
+                WebView.HitTestResult.IMAGE_TYPE, WebView.HitTestResult.SRC_IMAGE_ANCHOR_TYPE -> target.extra
+                else -> null
+            }
+            if (imageUrl != null) {
+                onSaveImage(imageUrl)
+                true
+            } else {
+                false
             }
         }
 

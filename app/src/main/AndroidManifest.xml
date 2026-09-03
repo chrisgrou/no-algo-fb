@@ -5,6 +5,12 @@
     <!-- Lets the in-app updater install a newly downloaded APK without the user
          having to hunt down "install unknown apps" in system settings first. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- Needed only up to API 28 to insert into MediaStore.Images at all — API 29+'s
+         scoped storage lets any app write its own MediaStore entries without it, and
+         declaring it there would just be a permission the user never needs to grant. -->
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
 
     <application
         android:allowBackup="true"
