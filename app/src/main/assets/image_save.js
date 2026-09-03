@@ -31,6 +31,27 @@
   }
   log('installed, NativeMedia=' + !!window.NativeMedia);
 
+  // Every attempt at fetch()-ing a blob: URL back — even one intercepted at the exact
+  // moment of the click, before the browser ever treated it as a download — failed
+  // instantly with "Failed to fetch" on-device. That rules out a revocation race (there
+  // was no time for one) and points at fetch() simply not being able to reach a blob:
+  // URL at all in this WebView, regardless of timing. The actual fix: capture the real
+  // JS Blob object Facebook's own code hands to URL.createObjectURL() at the moment it
+  // does, keyed by the URL string it returns — then resolving a blob: URL later is a
+  // plain map lookup and a FileReader read of an object already in hand, no network-ish
+  // fetch involved at all. Patched as early as this script itself installs, long before
+  // any user action could trigger Facebook's own Save flow, so nothing created after
+  // this point is missed.
+  var blobRegistry = {};
+  var nativeCreateObjectURL = URL.createObjectURL;
+  URL.createObjectURL = function (obj) {
+    var url = nativeCreateObjectURL.call(URL, obj);
+    try {
+      blobRegistry[url] = obj;
+    } catch (e) {}
+    return url;
+  };
+
   var LONG_PRESS_MS = 500;
   // Cancels the hold if the finger actually moves — a scroll or swipe starting on top
   // of an image shouldn't be mistaken for someone holding still on it.
@@ -130,33 +151,39 @@
     }
   }
 
-  // A blob: URL can go stale by the time this runs: Facebook's own code created it for
-  // its own one-shot internal use (its "Save" button's own download flow) and, on the
-  // setDownloadListener path in particular, likely already revoked it
-  // (URL.revokeObjectURL) right after using it, before our native onDownloadStart
-  // callback even fires and asks this function to re-fetch the same URL. A first
-  // version had no failure reporting at all here — fetch() rejecting just silently did
-  // nothing, indistinguishable from this function never having run in the first place.
-  // Now it always tells the native side one way or the other.
+  function readBlobAndSend(blob) {
+    log('reading blob, size=' + blob.size + ' type=' + blob.type);
+    var reader = new FileReader();
+    reader.onloadend = function () {
+      log('resolveAndSend sending data url, length=' + (reader.result ? String(reader.result).length : 0));
+      // reader.result is itself a data: URL ("data:image/jpeg;base64,...."), already
+      // exactly what MediaDownloader.saveImageDataUrl expects.
+      window.NativeMedia && window.NativeMedia.onImageDataUrl(String(reader.result));
+    };
+    reader.onerror = function () {
+      log('resolveAndSend FileReader error');
+      window.NativeMedia && window.NativeMedia.onImageResolveFailed('FileReader error');
+    };
+    reader.readAsDataURL(blob);
+  }
+
+  // The registry (see its own comment above) is checked first: every on-device trace
+  // of fetch()-ing a blob: URL back failed instantly, timing-race or not, so that's now
+  // only a fallback for the (should be rare) case of a blob: URL this page created
+  // before this script got a chance to patch URL.createObjectURL. A first version had
+  // no failure reporting at all here — fetch() rejecting just silently did nothing,
+  // indistinguishable from this function never having run in the first place. Now it
+  // always tells the native side one way or the other.
   function resolveAndSend(url) {
-    log('resolveAndSend ' + url.substring(0, 60));
+    log('resolveAndSend ' + url.substring(0, 60) + ' inRegistry=' + (url in blobRegistry));
+    var cached = blobRegistry[url];
+    if (cached) {
+      readBlobAndSend(cached);
+      return;
+    }
     fetch(url)
       .then(function (res) { return res.blob(); })
-      .then(function (blob) {
-        log('resolveAndSend fetched, size=' + blob.size + ' type=' + blob.type);
-        var reader = new FileReader();
-        reader.onloadend = function () {
-          log('resolveAndSend sending data url, length=' + (reader.result ? String(reader.result).length : 0));
-          // reader.result is itself a data: URL ("data:image/jpeg;base64,...."),
-          // already exactly what MediaDownloader.saveImageDataUrl expects.
-          window.NativeMedia && window.NativeMedia.onImageDataUrl(String(reader.result));
-        };
-        reader.onerror = function () {
-          log('resolveAndSend FileReader error');
-          window.NativeMedia && window.NativeMedia.onImageResolveFailed('FileReader error');
-        };
-        reader.readAsDataURL(blob);
-      })
+      .then(readBlobAndSend)
       .catch(function (err) {
         var reason = String((err && err.message) || err);
         log('resolveAndSend fetch failed: ' + reason);
