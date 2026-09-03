@@ -19,9 +19,20 @@ import android.webkit.JavascriptInterface
  * the page's own handlers consume the same touch.
  */
 class MediaBridge(
-    private val onImageUrl: (String) -> Unit,
-    private val onImageDataUrl: (String) -> Unit,
-    private val onImageResolveFailed: (String) -> Unit,
+    // Named *Callback, not the same as the @JavascriptInterface method below it feeds:
+    // giving a constructor property and a member function the identical name compiles
+    // fine, but a bare call of that name from inside the class then binds to the
+    // member function itself (Kotlin prefers a real function over invoking a
+    // same-named property through its invoke() convention) — a silent recursive
+    // self-call, not the callback. That was live here: every onImageDataUrl(dataUrl)
+    // below was calling itself, forever, via its own Handler.post, and never once
+    // reaching MainActivity's real saveImageDataUrl. On-device evidence matched
+    // exactly — a MediaLog flood of nothing but "received"/"posted callback running"
+    // pairs, all the same argLength, and not one saveImageDataUrl/reportSaveResult
+    // line despite the JS side confirming every send.
+    private val onImageUrlCallback: (String) -> Unit,
+    private val onImageDataUrlCallback: (String) -> Unit,
+    private val onImageResolveFailedCallback: (String) -> Unit,
 ) {
     @JavascriptInterface
     fun onImageUrl(url: String) {
@@ -36,7 +47,7 @@ class MediaBridge(
         // Toasts, Compose state) needs the main thread.
         Handler(Looper.getMainLooper()).post {
             MediaLog.log("onImageUrl posted callback running")
-            onImageUrl(url)
+            onImageUrlCallback(url)
         }
     }
 
@@ -45,7 +56,7 @@ class MediaBridge(
         MediaLog.log("onImageDataUrl received, length=${dataUrl.length}")
         Handler(Looper.getMainLooper()).post {
             MediaLog.log("onImageDataUrl posted callback running")
-            onImageDataUrl(dataUrl)
+            onImageDataUrlCallback(dataUrl)
         }
     }
 
@@ -56,6 +67,6 @@ class MediaBridge(
     @JavascriptInterface
     fun onImageResolveFailed(reason: String) {
         MediaLog.log("onImageResolveFailed received: $reason")
-        Handler(Looper.getMainLooper()).post { onImageResolveFailed(reason) }
+        Handler(Looper.getMainLooper()).post { onImageResolveFailedCallback(reason) }
     }
 }
