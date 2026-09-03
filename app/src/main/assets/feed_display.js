@@ -121,14 +121,26 @@
   var timer = null;
   var observer = new MutationObserver(function (mutations) {
     // Classification is memoized per node (see REACTION_CHECKED_ATTR above), which
-    // would otherwise permanently skip re-checking a node whose aria-label just
-    // changed — exactly the case this attribute observer exists to catch. Un-mark
-    // it here so the debounced apply() below re-classifies it from scratch.
+    // would otherwise permanently skip re-checking a node whose content just changed
+    // — exactly the case this observer exists to catch. An on-device capture caught
+    // this failing for real: a "Suggested for you" block's heading <span> already
+    // carried SUGGESTED_CHECKED_ATTR with no matching SUGGESTED_MARK_ATTR anywhere
+    // near it, yet its textContent read exactly "Suggested for you" — Facebook's own
+    // virtualization recycles DOM nodes as the feed scrolls (reusing the same <span>
+    // for different text each time) rather than creating fresh ones, so this exact
+    // node had at some point held different, non-matching text, gotten marked "not a
+    // heading" for good, and was later recycled to show this heading without ever
+    // being reconsidered. Un-mark on every mutation type — attribute (the aria-label
+    // case above), childList (Facebook replacing a leaf's text node wholesale), and
+    // characterData (a text node's value edited in place) — so the debounced apply()
+    // below re-classifies whichever node actually changed, however it changed.
     for (var i = 0; i < mutations.length; i++) {
       var m = mutations[i];
-      if (m.type === 'attributes' && m.target.nodeType === 1) {
-        m.target.removeAttribute(REACTION_CHECKED_ATTR);
-      }
+      var el = m.target.nodeType === 1 ? m.target : m.target.parentElement;
+      if (!el) continue;
+      el.removeAttribute(REACTION_CHECKED_ATTR);
+      el.removeAttribute(SUGGESTED_CHECKED_ATTR);
+      el.removeAttribute(PEOPLE_CHECKED_ATTR);
     }
     if (timer) return;
     timer = setTimeout(function () {
@@ -143,11 +155,14 @@
   // when it's first inserted — Facebook sets it slightly later, an attribute-only
   // change with no accompanying childList mutation — so those pills were never
   // reclassified and stayed unhidden. Scoping the filter to just aria-label keeps
-  // this cheap while still catching that case.
+  // this cheap while still catching that case. characterData:true is new (see above)
+  // and deliberately unfiltered — there's no equivalent attribute-name filter for it,
+  // and it only fires for an actual text value change, not every mutation broadly.
   observer.observe(document.body, {
     childList: true,
     subtree: true,
     attributes: true,
     attributeFilter: ['aria-label'],
+    characterData: true,
   });
 })();
