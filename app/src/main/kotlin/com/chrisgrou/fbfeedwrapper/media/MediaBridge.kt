@@ -21,6 +21,7 @@ import android.webkit.JavascriptInterface
 class MediaBridge(
     private val onImageUrl: (String) -> Unit,
     private val onImageDataUrl: (String) -> Unit,
+    private val onImageResolveFailed: (String) -> Unit,
 ) {
     @JavascriptInterface
     fun onImageUrl(url: String) {
@@ -33,5 +34,14 @@ class MediaBridge(
     @JavascriptInterface
     fun onImageDataUrl(dataUrl: String) {
         Handler(Looper.getMainLooper()).post { onImageDataUrl(dataUrl) }
+    }
+
+    // A long-press that found nothing to save, or a blob:/data: resolve that failed
+    // (most likely a blob: URL Facebook's own code had already revoked by the time
+    // this ran — see image_save.js's own comment) — either way, a visible reason
+    // instead of a long-press or a Save tap that silently does nothing at all.
+    @JavascriptInterface
+    fun onImageResolveFailed(reason: String) {
+        Handler(Looper.getMainLooper()).post { onImageResolveFailed(reason) }
     }
 }

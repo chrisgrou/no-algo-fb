@@ -128,6 +128,7 @@ class MainActivity : ComponentActivity() {
                 onDebugDump = ::captureDebugDump,
                 onSaveImage = ::saveImage,
                 onSaveImageDataUrl = ::saveImageDataUrl,
+                onImageResolveFailed = ::onImageResolveFailed,
             )
         }
     }
@@ -223,6 +224,14 @@ class MainActivity : ComponentActivity() {
         activityScope.launch { reportSaveResult(MediaDownloader.saveImageDataUrl(this@MainActivity, dataUrl)) }
     }
 
+    // A long-press that found no image, or a blob:/data: resolve that failed inside the
+    // page's own JS — see MediaBridge.onImageResolveFailed / image_save.js's own
+    // comment on why a blob: URL specifically can fail this way (most likely already
+    // revoked by Facebook's own code by the time this runs).
+    private fun onImageResolveFailed(reason: String) {
+        Toast.makeText(this, "Αποτυχία αποθήκευσης εικόνας: $reason", Toast.LENGTH_LONG).show()
+    }
+
     // The reason, not just pass/fail, until this has actually been confirmed working
     // on-device — a bare "failed" gives no way to tell a network/CDN problem (see
     // MediaDownloader's own Referer/Cookie/User-Agent handling) apart from a MediaStore
@@ -281,6 +290,7 @@ private fun App(
     onDebugDump: () -> Unit,
     onSaveImage: (String) -> Unit,
     onSaveImageDataUrl: (String) -> Unit,
+    onImageResolveFailed: (String) -> Unit,
 ) {
     var screen by remember { mutableStateOf(Screen.Feed) }
     // Activity-scoped, so results (list edits, sync imports, an update check) land
@@ -331,6 +341,7 @@ private fun App(
             onBaseFeedChanged = { isBaseFeed = it },
             onSaveImage = onSaveImage,
             onSaveImageDataUrl = onSaveImageDataUrl,
+            onImageResolveFailed = onImageResolveFailed,
         )
     }
     LaunchedEffect(webView) { onWebViewCreated(webView) }
@@ -427,6 +438,7 @@ private fun createFeedWebView(
     onBaseFeedChanged: (Boolean) -> Unit,
     onSaveImage: (String) -> Unit,
     onSaveImageDataUrl: (String) -> Unit,
+    onImageResolveFailed: (String) -> Unit,
 ): WebView {
     // Lets `chrome://inspect` on a USB-connected desktop attach DevTools to this
     // WebView's live, authenticated session — the only practical way to read
@@ -482,7 +494,15 @@ private fun createFeedWebView(
         // bytes back over NativeMedia.onImageDataUrl. Video isn't handled yet —
         // PROJECT_CONTENT.md's own roadmap keeps it as a separate, later step.
         setDownloadListener { url, _, _, mimetype, _ ->
-            if (!mimetype.startsWith("image/")) {
+            // mimetype is a Java String crossing the SAM boundary — Kotlin infers it
+            // as non-null here, but nothing stops the actual WebView engine from
+            // handing over a real null underneath that; ?.startsWith(...) == true
+            // (not mimetype?.startsWith(...) ?: false, which reads the same but hides
+            // the intent less) treats that the same as "not an image" instead of
+            // crashing this callback with an NPE the WebView engine would otherwise
+            // swallow silently — exactly the kind of total silence this was meant to
+            // stop happening.
+            if (mimetype?.startsWith("image/") != true) {
                 Toast.makeText(context, "Η αποθήκευση υποστηρίζει προς το παρόν μόνο εικόνες", Toast.LENGTH_SHORT).show()
             } else if (url.startsWith("blob:") || url.startsWith("data:")) {
                 evaluateJavascript(
@@ -501,7 +521,11 @@ private fun createFeedWebView(
         // touchstart for its own pinch/zoom/swipe gestures, which stops the platform's
         // long-press gesture detection before it ever starts).
         addJavascriptInterface(
-            MediaBridge(onImageUrl = onSaveImage, onImageDataUrl = onSaveImageDataUrl),
+            MediaBridge(
+                onImageUrl = onSaveImage,
+                onImageDataUrl = onSaveImageDataUrl,
+                onImageResolveFailed = onImageResolveFailed,
+            ),
             "NativeMedia",
         )
 

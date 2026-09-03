@@ -63,6 +63,14 @@
     }
   }
 
+  // A blob: URL can go stale by the time this runs: Facebook's own code created it for
+  // its own one-shot internal use (its "Save" button's own download flow) and, on the
+  // setDownloadListener path in particular, likely already revoked it
+  // (URL.revokeObjectURL) right after using it, before our native onDownloadStart
+  // callback even fires and asks this function to re-fetch the same URL. A first
+  // version had no failure reporting at all here — fetch() rejecting just silently did
+  // nothing, indistinguishable from this function never having run in the first place.
+  // Now it always tells the native side one way or the other.
   function resolveAndSend(url) {
     fetch(url)
       .then(function (res) { return res.blob(); })
@@ -73,9 +81,14 @@
           // already exactly what MediaDownloader.saveImageDataUrl expects.
           window.NativeMedia && window.NativeMedia.onImageDataUrl(String(reader.result));
         };
+        reader.onerror = function () {
+          window.NativeMedia && window.NativeMedia.onImageResolveFailed('FileReader error');
+        };
         reader.readAsDataURL(blob);
       })
-      .catch(function () {});
+      .catch(function (err) {
+        window.NativeMedia && window.NativeMedia.onImageResolveFailed(String((err && err.message) || err));
+      });
   }
 
   // Exposed for MainActivity's setDownloadListener to call into when Facebook's own
@@ -102,7 +115,15 @@
     timer = setTimeout(function () {
       timer = null;
       var url = imageUrlAt(startX, startY);
-      if (url) sendForSave(url);
+      // Reported once as "long-press does literally nothing": with no image found,
+      // this used to do nothing at all, which looked identical to the hold timer never
+      // having fired in the first place. A visible "not found" now rules that out —
+      // if this still never appears, the timer/touch handling itself isn't the issue.
+      if (url) {
+        sendForSave(url);
+      } else if (window.NativeMedia) {
+        window.NativeMedia.onImageResolveFailed('Δεν βρέθηκε εικόνα σε αυτό το σημείο');
+      }
     }, LONG_PRESS_MS);
   }, { capture: true, passive: true });
 
