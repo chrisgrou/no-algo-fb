@@ -494,6 +494,16 @@ private fun createFeedWebView(
         // bytes back over NativeMedia.onImageDataUrl. Video isn't handled yet —
         // PROJECT_CONTENT.md's own roadmap keeps it as a separate, later step.
         setDownloadListener { url, _, _, mimetype, _ ->
+            // Reported as producing no feedback at all even after every path below was
+            // given a guaranteed Toast — logged first, before any of that logic, in
+            // case onDownloadStart itself either never fires or throws before reaching
+            // any of it. Same shared timeline image_save.js and resume_guard.js already
+            // log into, surfaced in the debug dump.
+            evaluateJavascript(
+                "window.__ffwLog && window.__ffwLog('setDownloadListener: mimetype=' + " +
+                    "${JSONObject.quote(mimetype ?: "null")} + ' url=' + ${JSONObject.quote(url.take(80))});",
+                null,
+            )
             // mimetype is a Java String crossing the SAM boundary — Kotlin infers it
             // as non-null here, but nothing stops the actual WebView engine from
             // handing over a real null underneath that; ?.startsWith(...) == true

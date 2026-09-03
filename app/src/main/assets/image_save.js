@@ -10,6 +10,20 @@
   if (window.__ffwImageSaveInstalled) return;
   window.__ffwImageSaveInstalled = true;
 
+  // Reported twice now as producing literally no feedback on either the long-press or
+  // the "..." menu's Save button, even after both were given guaranteed-to-fire native
+  // Toasts for every path including failure. That points at something upstream of any
+  // of that code ever running — this script not installing, the touch never reaching
+  // it, or setDownloadListener never firing at all — none of which a Toast from deep
+  // inside this file could ever reveal. Logging into the same shared timeline
+  // resume_guard.js already exposes through the debug dump (window.__ffwLog) means a
+  // capture taken right after reproducing it shows what actually happened, or shows
+  // this file never got this far at all, instead of guessing again.
+  function log(msg) {
+    if (window.__ffwLog) window.__ffwLog('image_save: ' + msg);
+  }
+  log('installed, NativeMedia=' + !!window.NativeMedia);
+
   var LONG_PRESS_MS = 500;
   // Cancels the hold if the finger actually moves — a scroll or swipe starting on top
   // of an image shouldn't be mistaken for someone holding still on it.
@@ -55,7 +69,11 @@
   // page's JS and re-encode them as base64 when the native side can just fetch them
   // directly, and doing that always would multiply memory use for every save.
   function sendForSave(url) {
-    if (!window.NativeMedia) return;
+    log('sendForSave ' + url.substring(0, 60));
+    if (!window.NativeMedia) {
+      log('NativeMedia missing, cannot send');
+      return;
+    }
     if (url.indexOf('blob:') === 0 || url.indexOf('data:') === 0) {
       resolveAndSend(url);
     } else {
@@ -72,22 +90,28 @@
   // nothing, indistinguishable from this function never having run in the first place.
   // Now it always tells the native side one way or the other.
   function resolveAndSend(url) {
+    log('resolveAndSend ' + url.substring(0, 60));
     fetch(url)
       .then(function (res) { return res.blob(); })
       .then(function (blob) {
+        log('resolveAndSend fetched, size=' + blob.size + ' type=' + blob.type);
         var reader = new FileReader();
         reader.onloadend = function () {
+          log('resolveAndSend sending data url, length=' + (reader.result ? String(reader.result).length : 0));
           // reader.result is itself a data: URL ("data:image/jpeg;base64,...."),
           // already exactly what MediaDownloader.saveImageDataUrl expects.
           window.NativeMedia && window.NativeMedia.onImageDataUrl(String(reader.result));
         };
         reader.onerror = function () {
+          log('resolveAndSend FileReader error');
           window.NativeMedia && window.NativeMedia.onImageResolveFailed('FileReader error');
         };
         reader.readAsDataURL(blob);
       })
       .catch(function (err) {
-        window.NativeMedia && window.NativeMedia.onImageResolveFailed(String((err && err.message) || err));
+        var reason = String((err && err.message) || err);
+        log('resolveAndSend fetch failed: ' + reason);
+        window.NativeMedia && window.NativeMedia.onImageResolveFailed(reason);
       });
   }
 
@@ -115,6 +139,7 @@
     timer = setTimeout(function () {
       timer = null;
       var url = imageUrlAt(startX, startY);
+      log('long-press fired at ' + Math.round(startX) + ',' + Math.round(startY) + ' -> ' + (url ? url.substring(0, 60) : 'nothing found'));
       // Reported once as "long-press does literally nothing": with no image found,
       // this used to do nothing at all, which looked identical to the hold timer never
       // having fired in the first place. A visible "not found" now rules that out —
