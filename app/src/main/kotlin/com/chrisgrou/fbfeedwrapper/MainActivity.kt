@@ -2,6 +2,7 @@ package com.chrisgrou.fbfeedwrapper
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
@@ -85,6 +86,16 @@ class MainActivity : ComponentActivity() {
     private var restoredState: Bundle? = null
     private val activityScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
+    // Set once on a cold start from a tapped Facebook link (see the manifest's VIEW
+    // intent-filter) and read once by App() to decide the very first page loaded —
+    // separate from pendingExternalUrl below, which is Compose state read reactively on
+    // every subsequent link tap while the Activity is already alive.
+    private var startUrl: String = FEED_URL
+    // Backed by Compose state (not a plain var) so App()'s LaunchedEffect actually
+    // re-runs when singleTask hands this Activity a new VIEW intent for a link tapped
+    // while the app was already running — a plain var wouldn't trigger recomposition.
+    private var pendingExternalUrl by mutableStateOf<String?>(null)
+
     // Only ever needed below API 29 (see the manifest's own maxSdkVersion note) — a
     // launcher has to be registered before the Activity reaches STARTED, so this lives
     // here as a property rather than being created on demand inside saveImage().
@@ -99,15 +110,32 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         restoredState = savedInstanceState?.getBundle(WEBVIEW_STATE_KEY)
+        // A restored WebView state already has its own last-loaded URL, which
+        // restoreState() below wins with regardless — this only matters for a genuine
+        // cold start (restoredState == null), where it decides what loadUrl() sees
+        // instead of the feed root.
+        startUrl = urlFromIntent(intent) ?: FEED_URL
 
         setContent {
             App(
                 restoredState = restoredState,
+                startUrl = startUrl,
+                pendingExternalUrl = pendingExternalUrl,
+                onPendingExternalUrlHandled = { pendingExternalUrl = null },
                 onWebViewCreated = { webView = it },
                 onDebugDump = ::captureDebugDump,
                 onSaveImage = ::saveImage,
             )
         }
+    }
+
+    // singleTask (see the manifest) means a second tap on a Facebook link while this
+    // Activity is already running hands the URL here instead of going through
+    // onCreate again — the WebView (and everything else) stays exactly as it was.
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        urlFromIntent(intent)?.let { pendingExternalUrl = it }
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -153,6 +181,12 @@ class MainActivity : ComponentActivity() {
         activityScope.cancel()
         super.onDestroy()
     }
+
+    // Only android.intent.action.VIEW carries a link tapped elsewhere — MAIN (the
+    // launcher icon) has no data, and this returning null for it is what keeps a plain
+    // app-icon tap loading the normal feed instead of trying to "open" nothing.
+    private fun urlFromIntent(intent: Intent?): String? =
+        intent?.takeIf { it.action == Intent.ACTION_VIEW }?.data?.toString()
 
     // Reachable from a long-press on an image (see createFeedWebView's
     // setOnLongClickListener) and from WebView.setDownloadListener catching a real HTTP
@@ -211,6 +245,9 @@ private enum class Screen { Feed, Settings, Sync, AllowedSources, Debug, TabIcon
 @Composable
 private fun App(
     restoredState: Bundle?,
+    startUrl: String,
+    pendingExternalUrl: String?,
+    onPendingExternalUrlHandled: () -> Unit,
     onWebViewCreated: (WebView) -> Unit,
     onDebugDump: () -> Unit,
     onSaveImage: (String) -> Unit,
@@ -252,6 +289,7 @@ private fun App(
         createFeedWebView(
             context = context,
             restoredState = restoredState,
+            startUrl = startUrl,
             filterBridge = filterBridge,
             scrollBridge = scrollBridge,
             navBridge = navBridge,
@@ -265,6 +303,17 @@ private fun App(
         )
     }
     LaunchedEffect(webView) { onWebViewCreated(webView) }
+
+    // Handles a Facebook link tapped while the app was already running (singleTask
+    // hands MainActivity.onNewIntent the new intent instead of recreating anything —
+    // see there). A cold start's own first URL is startUrl above, loaded once by
+    // createFeedWebView itself; this is only for every load after that.
+    LaunchedEffect(pendingExternalUrl) {
+        val url = pendingExternalUrl ?: return@LaunchedEffect
+        webView.loadUrl(url)
+        screen = Screen.Feed
+        onPendingExternalUrlHandled()
+    }
 
     when (screen) {
         Screen.Feed -> FbWebViewScreen(
@@ -335,6 +384,7 @@ private fun App(
 private fun createFeedWebView(
     context: android.content.Context,
     restoredState: Bundle?,
+    startUrl: String,
     filterBridge: FeedFilterBridge,
     scrollBridge: ScrollPositionBridge,
     navBridge: NavigationBridge,
@@ -425,7 +475,7 @@ private fun createFeedWebView(
         if (restoredState != null) {
             restoreState(restoredState)
         } else {
-            loadUrl(FEED_URL)
+            loadUrl(startUrl)
         }
     }
 }

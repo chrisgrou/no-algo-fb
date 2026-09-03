@@ -36,6 +36,31 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+
+            <!-- Lets the app show up as a handler for a Facebook link tapped anywhere
+                 else on the phone (another app, a text message, ...), same as the
+                 official Facebook app or a browser would. No android:autoVerify: that
+                 needs a verification file hosted at https://<host>/.well-known/
+                 assetlinks.json, which only Facebook itself could publish — without
+                 it, Android shows this app in the "Open with" chooser (or as the
+                 always-on default once the user picks it there, or via Settings → Apps
+                 → this app → Set as default → Add link) rather than claiming the link
+                 automatically. onNewIntent in MainActivity is what actually loads the
+                 tapped URL once the app opens. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" />
+                <data android:scheme="http" />
+                <data android:host="facebook.com" />
+                <data android:host="www.facebook.com" />
+                <data android:host="m.facebook.com" />
+                <data android:host="mobile.facebook.com" />
+                <data android:host="touch.facebook.com" />
+                <data android:host="fb.me" />
+                <data android:host="fb.watch" />
+            </intent-filter>
         </activity>
 
         <!-- Exposes the downloaded update APK (private app cache) to the system

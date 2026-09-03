@@ -70,7 +70,13 @@ class FbWebViewClient(
             return openExternally(view.context, target)
         }
 
-        val isFacebook = host == "facebook.com" || host.endsWith(".facebook.com")
+        // fb.me/fb.watch are Facebook's own short-link domains (what a shared link
+        // often actually points at — see the manifest's VIEW intent-filter, which
+        // matches the same set) and redirect straight into facebook.com; keeping them
+        // in-app here too means that redirect doesn't get treated as "leaving
+        // Facebook" and bounced out to an external browser mid-navigation.
+        val isFacebook = host == "facebook.com" || host.endsWith(".facebook.com") ||
+            host == "fb.me" || host == "fb.watch"
         if (isFacebook) return false
 
         return openExternally(view.context, uri)
