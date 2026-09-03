@@ -22,6 +22,7 @@ private val INJECTED_ASSETS = listOf(
     "scroll_to_top.js",
     "post_nav.js",
     "bookmarks_nav.js",
+    "image_save.js",
 )
 
 /**

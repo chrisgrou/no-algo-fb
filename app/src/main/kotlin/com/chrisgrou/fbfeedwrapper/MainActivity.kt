@@ -49,6 +49,7 @@ import com.chrisgrou.fbfeedwrapper.debug.shareHtmlDump
 import com.chrisgrou.fbfeedwrapper.filter.FeedFilterBridge
 import com.chrisgrou.fbfeedwrapper.history.HistoryScreen
 import com.chrisgrou.fbfeedwrapper.history.PostHistoryPreferences
+import com.chrisgrou.fbfeedwrapper.media.MediaBridge
 import com.chrisgrou.fbfeedwrapper.media.MediaDownloader
 import com.chrisgrou.fbfeedwrapper.nav.NavigationBridge
 import com.chrisgrou.fbfeedwrapper.scroll.ScrollPositionBridge
@@ -188,10 +189,10 @@ class MainActivity : ComponentActivity() {
     private fun urlFromIntent(intent: Intent?): String? =
         intent?.takeIf { it.action == Intent.ACTION_VIEW }?.data?.toString()
 
-    // Reachable from a long-press on an image (see createFeedWebView's
-    // setOnLongClickListener) and from WebView.setDownloadListener catching a real HTTP
-    // image download Facebook's own UI triggered — either way this is the single path
-    // that actually writes the file, via MediaDownloader.
+    // Reachable from image_save.js's own long-press detection (see MediaBridge) and
+    // from WebView.setDownloadListener catching a real HTTP image download Facebook's
+    // own UI triggered — either way this is the single path that actually writes the
+    // file, via MediaDownloader.
     private fun saveImage(url: String) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) !=
@@ -205,8 +206,19 @@ class MainActivity : ComponentActivity() {
         Toast.makeText(this, "Αποθήκευση εικόνας...", Toast.LENGTH_SHORT).show()
         activityScope.launch {
             val result = MediaDownloader.saveImage(this@MainActivity, url)
-            val message = if (result.isSuccess) "Η εικόνα αποθηκεύτηκε στη Συλλογή" else "Αποτυχία αποθήκευσης εικόνας"
-            Toast.makeText(this@MainActivity, message, Toast.LENGTH_SHORT).show()
+            // The reason, not just pass/fail, until this has actually been confirmed
+            // working on-device — a bare "failed" gives no way to tell a network/CDN
+            // problem (see MediaDownloader's own Referer/Cookie handling) apart from a
+            // MediaStore one without another whole debug round trip.
+            if (result.isSuccess) {
+                Toast.makeText(this@MainActivity, "Η εικόνα αποθηκεύτηκε στη Συλλογή", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(
+                    this@MainActivity,
+                    "Αποτυχία αποθήκευσης εικόνας: ${result.exceptionOrNull()?.message}",
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
         }
     }
 
@@ -454,23 +466,13 @@ private fun createFeedWebView(
             }
         }
 
-        // The reliable path: works straight off the DOM's own <img src>, independent
-        // of whichever mechanism (if any) Facebook's own "Save" UI actually uses.
-        // Consumed (returns true) only for an actual image hit — anything else falls
-        // through to the WebView's normal long-press handling (text selection, etc.).
-        setOnLongClickListener {
-            val target = hitTestResult
-            val imageUrl = when (target.type) {
-                WebView.HitTestResult.IMAGE_TYPE, WebView.HitTestResult.SRC_IMAGE_ANCHOR_TYPE -> target.extra
-                else -> null
-            }
-            if (imageUrl != null) {
-                onSaveImage(imageUrl)
-                true
-            } else {
-                false
-            }
-        }
+        // The reliable path: image_save.js's own JS long-press detection, not
+        // WebView's native OnLongClickListener/HitTestResult — an on-device test found
+        // that never fired at all on a Facebook photo (see MediaBridge's own comment
+        // on why: Facebook's photo viewer almost certainly preventDefault()s
+        // touchstart for its own pinch/zoom/swipe gestures, which stops the platform's
+        // long-press gesture detection before it ever starts).
+        addJavascriptInterface(MediaBridge(onImageLongPress = onSaveImage), "NativeMedia")
 
         if (restoredState != null) {
             restoreState(restoredState)

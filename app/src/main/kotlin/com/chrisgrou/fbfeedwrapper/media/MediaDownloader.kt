@@ -7,6 +7,7 @@ import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
 import android.webkit.CookieManager
+import android.webkit.WebSettings
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -33,6 +34,11 @@ object MediaDownloader {
             val requestBuilder = Request.Builder()
                 .url(url)
                 .header("Referer", "https://m.facebook.com/")
+                // Matches the actual WebView's own default UA rather than OkHttp's —
+                // some CDNs 403 a request whose User-Agent looks unlike a real browser,
+                // and this request otherwise looks exactly like that: a bare OkHttp
+                // client with none of the headers a real page load would carry.
+                .header("User-Agent", WebSettings.getDefaultUserAgent(context))
             if (!cookie.isNullOrEmpty()) requestBuilder.header("Cookie", cookie)
 
             client.newCall(requestBuilder.build()).execute().use { response ->
