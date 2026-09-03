@@ -192,6 +192,20 @@ class MainActivity : ComponentActivity() {
     private fun urlFromIntent(intent: Intent?): String? =
         intent?.takeIf { it.action == Intent.ACTION_VIEW }?.data?.toString()
 
+    // Reported twice: both the long-press and the "..." Save button now log
+    // successfully sending image bytes to native (see image_save.js's own "sending
+    // data url" log), yet nothing ever actually appears in the Gallery, either time.
+    // That means whatever's failing is entirely on this side, past the point JS
+    // reporting can see at all — a Toast alone wasn't enough evidence either, easy to
+    // miss or misremember on-device. Logging every step here into the same shared
+    // timeline the JS side already uses closes that gap for good.
+    private fun logToJs(message: String) {
+        webView?.evaluateJavascript(
+            "window.__ffwLog && window.__ffwLog(${JSONObject.quote("native: $message")});",
+            null,
+        )
+    }
+
     // Shared by saveImage() and saveImageDataUrl() below: both need the same
     // below-API-29 permission gate before touching MediaStore at all, differing only
     // in which suspend call they actually make once it's granted.
@@ -211,6 +225,7 @@ class MainActivity : ComponentActivity() {
     // WebView.setDownloadListener, both times for a plain http(s) image URL — see
     // MediaBridge.onImageUrl / MediaDownloader.saveImage.
     private fun saveImage(url: String) = withStoragePermission {
+        logToJs("saveImage url=" + url.take(80))
         Toast.makeText(this, "Αποθήκευση εικόνας...", Toast.LENGTH_SHORT).show()
         activityScope.launch { reportSaveResult(MediaDownloader.saveImage(this@MainActivity, url)) }
     }
@@ -220,6 +235,7 @@ class MainActivity : ComponentActivity() {
     // here at all) and hands over the actual bytes as a data: URL instead — see
     // MediaBridge.onImageDataUrl / MediaDownloader.saveImageDataUrl.
     private fun saveImageDataUrl(dataUrl: String) = withStoragePermission {
+        logToJs("saveImageDataUrl length=" + dataUrl.length)
         Toast.makeText(this, "Αποθήκευση εικόνας...", Toast.LENGTH_SHORT).show()
         activityScope.launch { reportSaveResult(MediaDownloader.saveImageDataUrl(this@MainActivity, dataUrl)) }
     }
@@ -238,11 +254,14 @@ class MainActivity : ComponentActivity() {
     // one, or from the blob: URL case above, without another whole debug round trip.
     private fun reportSaveResult(result: Result<Uri>) {
         if (result.isSuccess) {
+            logToJs("reportSaveResult success uri=${result.getOrNull()}")
             Toast.makeText(this, "Η εικόνα αποθηκεύτηκε στη Συλλογή", Toast.LENGTH_SHORT).show()
         } else {
+            val error = result.exceptionOrNull()
+            logToJs("reportSaveResult failed ${error?.javaClass?.simpleName}: ${error?.message}")
             Toast.makeText(
                 this,
-                "Αποτυχία αποθήκευσης εικόνας: ${result.exceptionOrNull()?.message}",
+                "Αποτυχία αποθήκευσης εικόνας: ${error?.message}",
                 Toast.LENGTH_LONG,
             ).show()
         }
