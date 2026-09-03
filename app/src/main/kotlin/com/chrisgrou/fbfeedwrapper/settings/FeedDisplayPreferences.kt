@@ -11,6 +11,7 @@ private const val KEY_FILTERING_ENABLED = "filtering_enabled"
 private const val KEY_HIDE_REACTIONS = "hide_reactions"
 private const val KEY_HIDE_SUGGESTED = "hide_suggested"
 private const val KEY_HIDE_PEOPLE_YOU_MAY_KNOW = "hide_people_you_may_know"
+private const val KEY_HIDE_CREATORS = "hide_creators"
 private const val KEY_SHOW_SCROLL_TOP = "show_scroll_top_button"
 private const val KEY_SHOW_POST_NAV = "show_post_nav_buttons"
 private const val KEY_BUTTON_SIZE = "floating_button_size"
@@ -49,6 +50,9 @@ class FeedDisplayPreferences(context: Context) {
     private val _hidePeopleYouMayKnow = MutableStateFlow(prefs.getBoolean(KEY_HIDE_PEOPLE_YOU_MAY_KNOW, false))
     val hidePeopleYouMayKnow: StateFlow<Boolean> = _hidePeopleYouMayKnow.asStateFlow()
 
+    private val _hideCreators = MutableStateFlow(prefs.getBoolean(KEY_HIDE_CREATORS, false))
+    val hideCreators: StateFlow<Boolean> = _hideCreators.asStateFlow()
+
     private val _showScrollTopButton = MutableStateFlow(prefs.getBoolean(KEY_SHOW_SCROLL_TOP, true))
     val showScrollTopButton: StateFlow<Boolean> = _showScrollTopButton.asStateFlow()
 
@@ -78,6 +82,11 @@ class FeedDisplayPreferences(context: Context) {
         _hidePeopleYouMayKnow.value = enabled
     }
 
+    fun setHideCreators(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_HIDE_CREATORS, enabled).apply()
+        _hideCreators.value = enabled
+    }
+
     fun setShowScrollTopButton(enabled: Boolean) {
         prefs.edit().putBoolean(KEY_SHOW_SCROLL_TOP, enabled).apply()
         _showScrollTopButton.value = enabled
@@ -105,6 +114,9 @@ class FeedDisplayPreferences(context: Context) {
 
     @JavascriptInterface
     fun getHidePeopleYouMayKnow(): Boolean = prefs.getBoolean(KEY_HIDE_PEOPLE_YOU_MAY_KNOW, false)
+
+    @JavascriptInterface
+    fun getHideCreators(): Boolean = prefs.getBoolean(KEY_HIDE_CREATORS, false)
 
     @JavascriptInterface
     fun getShowScrollTopButton(): Boolean = prefs.getBoolean(KEY_SHOW_SCROLL_TOP, true)

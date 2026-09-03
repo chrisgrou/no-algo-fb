@@ -19,6 +19,8 @@
   var SUGGESTED_MARK_ATTR = 'data-ffw-is-suggested';
   var PEOPLE_CHECKED_ATTR = 'data-ffw-people-checked';
   var PEOPLE_MARK_ATTR = 'data-ffw-is-people';
+  var CREATORS_CHECKED_ATTR = 'data-ffw-creators-checked';
+  var CREATORS_MARK_ATTR = 'data-ffw-is-creators';
   var SCROLLER_SELECTOR = '[data-type="vscroller"]';
 
   if (!document.getElementById('ffw-display-style')) {
@@ -34,9 +36,10 @@
         hideReactions: !!(window.NativeDisplay && window.NativeDisplay.getHideReactions()),
         hideSuggested: !!(window.NativeDisplay && window.NativeDisplay.getHideSuggested()),
         hidePeople: !!(window.NativeDisplay && window.NativeDisplay.getHidePeopleYouMayKnow()),
+        hideCreators: !!(window.NativeDisplay && window.NativeDisplay.getHideCreators()),
       };
     } catch (e) {
-      return { hideReactions: false, hideSuggested: false, hidePeople: false };
+      return { hideReactions: false, hideSuggested: false, hidePeople: false, hideCreators: false };
     }
   }
 
@@ -104,11 +107,16 @@
     applyHeadingBlock('People you may know', PEOPLE_CHECKED_ATTR, PEOPLE_MARK_ATTR, enabled);
   }
 
+  function applyCreators(enabled) {
+    applyHeadingBlock('Discover more creators to follow', CREATORS_CHECKED_ATTR, CREATORS_MARK_ATTR, enabled);
+  }
+
   function apply() {
     var p = prefs();
     applyReactions(p.hideReactions);
     applySuggested(p.hideSuggested);
     applyPeopleYouMayKnow(p.hidePeople);
+    applyCreators(p.hideCreators);
   }
 
   // Re-applies against the current preference values (not just newly-added DOM) so
@@ -141,6 +149,7 @@
       el.removeAttribute(REACTION_CHECKED_ATTR);
       el.removeAttribute(SUGGESTED_CHECKED_ATTR);
       el.removeAttribute(PEOPLE_CHECKED_ATTR);
+      el.removeAttribute(CREATORS_CHECKED_ATTR);
     }
     if (timer) return;
     timer = setTimeout(function () {

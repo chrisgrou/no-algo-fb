@@ -502,6 +502,7 @@ private fun FbWebViewScreen(
     val hideReactions by displayPreferences.hideReactions.collectAsState()
     val hideSuggested by displayPreferences.hideSuggested.collectAsState()
     val hidePeopleYouMayKnow by displayPreferences.hidePeopleYouMayKnow.collectAsState()
+    val hideCreators by displayPreferences.hideCreators.collectAsState()
     val showScrollTopButton by displayPreferences.showScrollTopButton.collectAsState()
     val showPostNavButtons by displayPreferences.showPostNavButtons.collectAsState()
     val buttonSize by displayPreferences.buttonSize.collectAsState()
@@ -520,7 +521,7 @@ private fun FbWebViewScreen(
     // toggle in Settings — including the first composition after navigating back to
     // the feed from there, which is what actually picks up a change made while this
     // screen wasn't on screen to react to it live.
-    LaunchedEffect(hideReactions, hideSuggested, hidePeopleYouMayKnow) {
+    LaunchedEffect(hideReactions, hideSuggested, hidePeopleYouMayKnow, hideCreators) {
         webView.evaluateJavascript(REFRESH_DISPLAY_JS, null)
     }
 

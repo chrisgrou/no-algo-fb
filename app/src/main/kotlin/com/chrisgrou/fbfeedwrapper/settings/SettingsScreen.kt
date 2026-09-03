@@ -147,6 +147,7 @@ fun EnhancementsScreen(
     val hideReactions by displayPreferences.hideReactions.collectAsState()
     val hideSuggested by displayPreferences.hideSuggested.collectAsState()
     val hidePeopleYouMayKnow by displayPreferences.hidePeopleYouMayKnow.collectAsState()
+    val hideCreators by displayPreferences.hideCreators.collectAsState()
     val showScrollTopButton by displayPreferences.showScrollTopButton.collectAsState()
     val showPostNavButtons by displayPreferences.showPostNavButtons.collectAsState()
     val buttonSize by displayPreferences.buttonSize.collectAsState()
@@ -202,6 +203,17 @@ fun EnhancementsScreen(
                         Switch(
                             checked = hidePeopleYouMayKnow,
                             onCheckedChange = displayPreferences::setHidePeopleYouMayKnow,
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                ListItem(
+                    headlineContent = { Text("Απόκρυψη \"Discover more creators to follow\"") },
+                    supportingContent = { Text("Κρύβει τους προτεινόμενους δημιουργούς/σελίδες μέσα στο feed") },
+                    trailingContent = {
+                        Switch(
+                            checked = hideCreators,
+                            onCheckedChange = displayPreferences::setHideCreators,
                         )
                     },
                     modifier = Modifier.fillMaxWidth(),
