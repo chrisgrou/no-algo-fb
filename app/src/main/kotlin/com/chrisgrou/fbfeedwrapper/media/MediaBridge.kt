@@ -25,15 +25,28 @@ class MediaBridge(
 ) {
     @JavascriptInterface
     fun onImageUrl(url: String) {
+        // Logged right here, at the actual JavascriptInterface entry point, before
+        // anything else — including the thread hop below — gets a chance to lose it.
+        // See MediaLog's own comment for why this replaced trying to log back into the
+        // page's own JS console: that path was confirmed silently dropping every entry
+        // despite image_save.js seeing the bridge call itself succeed.
+        MediaLog.log("onImageUrl received, length=${url.length}")
         // Same reasoning as NavigationBridge.requestOpenSettings(): this callback runs
         // on a background thread, but everything downstream (permission requests,
         // Toasts, Compose state) needs the main thread.
-        Handler(Looper.getMainLooper()).post { onImageUrl(url) }
+        Handler(Looper.getMainLooper()).post {
+            MediaLog.log("onImageUrl posted callback running")
+            onImageUrl(url)
+        }
     }
 
     @JavascriptInterface
     fun onImageDataUrl(dataUrl: String) {
-        Handler(Looper.getMainLooper()).post { onImageDataUrl(dataUrl) }
+        MediaLog.log("onImageDataUrl received, length=${dataUrl.length}")
+        Handler(Looper.getMainLooper()).post {
+            MediaLog.log("onImageDataUrl posted callback running")
+            onImageDataUrl(dataUrl)
+        }
     }
 
     // A long-press that found nothing to save, or a blob:/data: resolve that failed
@@ -42,6 +55,7 @@ class MediaBridge(
     // instead of a long-press or a Save tap that silently does nothing at all.
     @JavascriptInterface
     fun onImageResolveFailed(reason: String) {
+        MediaLog.log("onImageResolveFailed received: $reason")
         Handler(Looper.getMainLooper()).post { onImageResolveFailed(reason) }
     }
 }

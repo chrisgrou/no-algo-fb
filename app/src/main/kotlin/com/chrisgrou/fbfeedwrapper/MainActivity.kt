@@ -51,6 +51,7 @@ import com.chrisgrou.fbfeedwrapper.history.HistoryScreen
 import com.chrisgrou.fbfeedwrapper.history.PostHistoryPreferences
 import com.chrisgrou.fbfeedwrapper.media.MediaBridge
 import com.chrisgrou.fbfeedwrapper.media.MediaDownloader
+import com.chrisgrou.fbfeedwrapper.media.MediaLog
 import com.chrisgrou.fbfeedwrapper.nav.NavigationBridge
 import com.chrisgrou.fbfeedwrapper.scroll.ScrollPositionBridge
 import com.chrisgrou.fbfeedwrapper.settings.AllowedSourcesScreen
@@ -192,20 +193,6 @@ class MainActivity : ComponentActivity() {
     private fun urlFromIntent(intent: Intent?): String? =
         intent?.takeIf { it.action == Intent.ACTION_VIEW }?.data?.toString()
 
-    // Reported twice: both the long-press and the "..." Save button now log
-    // successfully sending image bytes to native (see image_save.js's own "sending
-    // data url" log), yet nothing ever actually appears in the Gallery, either time.
-    // That means whatever's failing is entirely on this side, past the point JS
-    // reporting can see at all — a Toast alone wasn't enough evidence either, easy to
-    // miss or misremember on-device. Logging every step here into the same shared
-    // timeline the JS side already uses closes that gap for good.
-    private fun logToJs(message: String) {
-        webView?.evaluateJavascript(
-            "window.__ffwLog && window.__ffwLog(${JSONObject.quote("native: $message")});",
-            null,
-        )
-    }
-
     // Shared by saveImage() and saveImageDataUrl() below: both need the same
     // below-API-29 permission gate before touching MediaStore at all, differing only
     // in which suspend call they actually make once it's granted.
@@ -214,10 +201,12 @@ class MainActivity : ComponentActivity() {
             ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) !=
                 PackageManager.PERMISSION_GRANTED
         ) {
+            MediaLog.log("withStoragePermission requesting permission, SDK_INT=${Build.VERSION.SDK_INT}")
             pendingImageAction = action
             storagePermissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
             return
         }
+        MediaLog.log("withStoragePermission proceeding directly, SDK_INT=${Build.VERSION.SDK_INT}")
         action()
     }
 
@@ -225,7 +214,7 @@ class MainActivity : ComponentActivity() {
     // WebView.setDownloadListener, both times for a plain http(s) image URL — see
     // MediaBridge.onImageUrl / MediaDownloader.saveImage.
     private fun saveImage(url: String) = withStoragePermission {
-        logToJs("saveImage url=" + url.take(80))
+        MediaLog.log("saveImage url=" + url.take(80))
         Toast.makeText(this, "Αποθήκευση εικόνας...", Toast.LENGTH_SHORT).show()
         activityScope.launch { reportSaveResult(MediaDownloader.saveImage(this@MainActivity, url)) }
     }
@@ -235,7 +224,7 @@ class MainActivity : ComponentActivity() {
     // here at all) and hands over the actual bytes as a data: URL instead — see
     // MediaBridge.onImageDataUrl / MediaDownloader.saveImageDataUrl.
     private fun saveImageDataUrl(dataUrl: String) = withStoragePermission {
-        logToJs("saveImageDataUrl length=" + dataUrl.length)
+        MediaLog.log("saveImageDataUrl length=" + dataUrl.length)
         Toast.makeText(this, "Αποθήκευση εικόνας...", Toast.LENGTH_SHORT).show()
         activityScope.launch { reportSaveResult(MediaDownloader.saveImageDataUrl(this@MainActivity, dataUrl)) }
     }
@@ -252,13 +241,20 @@ class MainActivity : ComponentActivity() {
     // on-device — a bare "failed" gives no way to tell a network/CDN problem (see
     // MediaDownloader's own Referer/Cookie/User-Agent handling) apart from a MediaStore
     // one, or from the blob: URL case above, without another whole debug round trip.
+    //
+    // Logged via MediaLog now, not evaluateJavascript back into the page's own console:
+    // on-device evidence ruled that path out — image_save.js confirmed the bridge call
+    // itself succeeding every time, yet not one of the corresponding native-side lines
+    // it was supposed to produce ever showed up in a capture. See MediaLog's own
+    // comment for the full reasoning. MediaLog.dump() is read directly by
+    // captureDebugDump() below instead, no WebView round trip involved.
     private fun reportSaveResult(result: Result<Uri>) {
         if (result.isSuccess) {
-            logToJs("reportSaveResult success uri=${result.getOrNull()}")
+            MediaLog.log("reportSaveResult success uri=${result.getOrNull()}")
             Toast.makeText(this, "Η εικόνα αποθηκεύτηκε στη Συλλογή", Toast.LENGTH_SHORT).show()
         } else {
             val error = result.exceptionOrNull()
-            logToJs("reportSaveResult failed ${error?.javaClass?.simpleName}: ${error?.message}")
+            MediaLog.log("reportSaveResult failed ${error?.javaClass?.simpleName}: ${error?.message}")
             Toast.makeText(
                 this,
                 "Αποτυχία αποθήκευσης εικόνας: ${error?.message}",
@@ -282,7 +278,11 @@ class MainActivity : ComponentActivity() {
             web.evaluateJavascript(DUMP_NAV_REPORT_JS) { navResult ->
                 val navReport = runCatching { JSONTokener(navResult).nextValue() as String }
                     .getOrNull().orEmpty()
-                val report = listOf(filterReport, navReport).filter { it.isNotBlank() }.joinToString("\n\n")
+                // Read directly, not through the WebView at all — see MediaLog's own
+                // comment on why the previous attempt at this (evaluateJavascript back
+                // into the page's own console) turned out to be unreliable.
+                val mediaLog = MediaLog.dump().let { if (it.isBlank()) "" else "===== MEDIA LOG =====\n\n$it" }
+                val report = listOf(filterReport, navReport, mediaLog).filter { it.isNotBlank() }.joinToString("\n\n")
                 web.evaluateJavascript(DUMP_VIEWPORT_HTML_JS) { htmlResult ->
                     val html = runCatching { JSONTokener(htmlResult).nextValue() as String }
                         .getOrNull().orEmpty()
