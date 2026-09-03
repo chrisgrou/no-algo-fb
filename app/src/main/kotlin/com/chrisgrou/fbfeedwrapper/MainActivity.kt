@@ -69,6 +69,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import org.json.JSONObject
 import org.json.JSONTokener
 
 private const val FEED_URL = "https://m.facebook.com"
@@ -100,12 +101,12 @@ class MainActivity : ComponentActivity() {
     // Only ever needed below API 29 (see the manifest's own maxSdkVersion note) — a
     // launcher has to be registered before the Activity reaches STARTED, so this lives
     // here as a property rather than being created on demand inside saveImage().
-    private var pendingImageUrl: String? = null
+    private var pendingImageAction: (() -> Unit)? = null
     private val storagePermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-            val url = pendingImageUrl
-            pendingImageUrl = null
-            if (granted && url != null) saveImage(url)
+            val action = pendingImageAction
+            pendingImageAction = null
+            if (granted) action?.invoke()
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -126,6 +127,7 @@ class MainActivity : ComponentActivity() {
                 onWebViewCreated = { webView = it },
                 onDebugDump = ::captureDebugDump,
                 onSaveImage = ::saveImage,
+                onSaveImageDataUrl = ::saveImageDataUrl,
             )
         }
     }
@@ -189,36 +191,51 @@ class MainActivity : ComponentActivity() {
     private fun urlFromIntent(intent: Intent?): String? =
         intent?.takeIf { it.action == Intent.ACTION_VIEW }?.data?.toString()
 
-    // Reachable from image_save.js's own long-press detection (see MediaBridge) and
-    // from WebView.setDownloadListener catching a real HTTP image download Facebook's
-    // own UI triggered — either way this is the single path that actually writes the
-    // file, via MediaDownloader.
-    private fun saveImage(url: String) {
+    // Shared by saveImage() and saveImageDataUrl() below: both need the same
+    // below-API-29 permission gate before touching MediaStore at all, differing only
+    // in which suspend call they actually make once it's granted.
+    private fun withStoragePermission(action: () -> Unit) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) !=
                 PackageManager.PERMISSION_GRANTED
         ) {
-            pendingImageUrl = url
+            pendingImageAction = action
             storagePermissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
             return
         }
+        action()
+    }
 
+    // Reachable from image_save.js's own long-press detection and from
+    // WebView.setDownloadListener, both times for a plain http(s) image URL — see
+    // MediaBridge.onImageUrl / MediaDownloader.saveImage.
+    private fun saveImage(url: String) = withStoragePermission {
         Toast.makeText(this, "Αποθήκευση εικόνας...", Toast.LENGTH_SHORT).show()
-        activityScope.launch {
-            val result = MediaDownloader.saveImage(this@MainActivity, url)
-            // The reason, not just pass/fail, until this has actually been confirmed
-            // working on-device — a bare "failed" gives no way to tell a network/CDN
-            // problem (see MediaDownloader's own Referer/Cookie handling) apart from a
-            // MediaStore one without another whole debug round trip.
-            if (result.isSuccess) {
-                Toast.makeText(this@MainActivity, "Η εικόνα αποθηκεύτηκε στη Συλλογή", Toast.LENGTH_SHORT).show()
-            } else {
-                Toast.makeText(
-                    this@MainActivity,
-                    "Αποτυχία αποθήκευσης εικόνας: ${result.exceptionOrNull()?.message}",
-                    Toast.LENGTH_LONG,
-                ).show()
-            }
+        activityScope.launch { reportSaveResult(MediaDownloader.saveImage(this@MainActivity, url)) }
+    }
+
+    // The blob:/data: counterpart: image_save.js resolves those inside the page's own
+    // JS context first (see its own comment on why a blob: URL can't be fetched from
+    // here at all) and hands over the actual bytes as a data: URL instead — see
+    // MediaBridge.onImageDataUrl / MediaDownloader.saveImageDataUrl.
+    private fun saveImageDataUrl(dataUrl: String) = withStoragePermission {
+        Toast.makeText(this, "Αποθήκευση εικόνας...", Toast.LENGTH_SHORT).show()
+        activityScope.launch { reportSaveResult(MediaDownloader.saveImageDataUrl(this@MainActivity, dataUrl)) }
+    }
+
+    // The reason, not just pass/fail, until this has actually been confirmed working
+    // on-device — a bare "failed" gives no way to tell a network/CDN problem (see
+    // MediaDownloader's own Referer/Cookie/User-Agent handling) apart from a MediaStore
+    // one, or from the blob: URL case above, without another whole debug round trip.
+    private fun reportSaveResult(result: Result<Uri>) {
+        if (result.isSuccess) {
+            Toast.makeText(this, "Η εικόνα αποθηκεύτηκε στη Συλλογή", Toast.LENGTH_SHORT).show()
+        } else {
+            Toast.makeText(
+                this,
+                "Αποτυχία αποθήκευσης εικόνας: ${result.exceptionOrNull()?.message}",
+                Toast.LENGTH_LONG,
+            ).show()
         }
     }
 
@@ -263,6 +280,7 @@ private fun App(
     onWebViewCreated: (WebView) -> Unit,
     onDebugDump: () -> Unit,
     onSaveImage: (String) -> Unit,
+    onSaveImageDataUrl: (String) -> Unit,
 ) {
     var screen by remember { mutableStateOf(Screen.Feed) }
     // Activity-scoped, so results (list edits, sync imports, an update check) land
@@ -312,6 +330,7 @@ private fun App(
             onHistoryChanged = { canGoBack = it.canGoBack() },
             onBaseFeedChanged = { isBaseFeed = it },
             onSaveImage = onSaveImage,
+            onSaveImageDataUrl = onSaveImageDataUrl,
         )
     }
     LaunchedEffect(webView) { onWebViewCreated(webView) }
@@ -407,6 +426,7 @@ private fun createFeedWebView(
     onHistoryChanged: (WebView) -> Unit,
     onBaseFeedChanged: (Boolean) -> Unit,
     onSaveImage: (String) -> Unit,
+    onSaveImageDataUrl: (String) -> Unit,
 ): WebView {
     // Lets `chrome://inspect` on a USB-connected desktop attach DevTools to this
     // WebView's live, authenticated session — the only practical way to read
@@ -452,17 +472,25 @@ private fun createFeedWebView(
 
         // Catches a real HTTP download Facebook's own UI triggers directly (an
         // unrenderable mimetype, or a Content-Disposition: attachment response) — a
-        // secondary path alongside the long-press handler below, since a browser
-        // "download" started via a blob: URL and a synthetic <a download> click, which
-        // is how some of Facebook's own "Save" buttons work, never reaches this
-        // callback at all (a known WebView limitation, not something to work around
-        // from here). Video isn't handled yet — PROJECT_CONTENT.md's own roadmap keeps
-        // it as a separate, later step.
+        // secondary path alongside the long-press handler below. An on-device test of
+        // the "..." menu's own Save button hit this and failed with "Expected URL
+        // scheme 'http' or 'https'": the url here can itself be a blob: URL (how some
+        // of Facebook's own "Save" buttons work internally), which no native HTTP
+        // client can fetch — only the page's own JS, which is what created it, can.
+        // __ffwResolveImageForSave (image_save.js) does exactly what it does for a
+        // long-press on the same kind of source: fetch the blob and hand the actual
+        // bytes back over NativeMedia.onImageDataUrl. Video isn't handled yet —
+        // PROJECT_CONTENT.md's own roadmap keeps it as a separate, later step.
         setDownloadListener { url, _, _, mimetype, _ ->
-            if (mimetype.startsWith("image/")) {
-                onSaveImage(url)
-            } else {
+            if (!mimetype.startsWith("image/")) {
                 Toast.makeText(context, "Η αποθήκευση υποστηρίζει προς το παρόν μόνο εικόνες", Toast.LENGTH_SHORT).show()
+            } else if (url.startsWith("blob:") || url.startsWith("data:")) {
+                evaluateJavascript(
+                    "window.__ffwResolveImageForSave && window.__ffwResolveImageForSave(${JSONObject.quote(url)});",
+                    null,
+                )
+            } else {
+                onSaveImage(url)
             }
         }
 
@@ -472,7 +500,10 @@ private fun createFeedWebView(
         // on why: Facebook's photo viewer almost certainly preventDefault()s
         // touchstart for its own pinch/zoom/swipe gestures, which stops the platform's
         // long-press gesture detection before it ever starts).
-        addJavascriptInterface(MediaBridge(onImageLongPress = onSaveImage), "NativeMedia")
+        addJavascriptInterface(
+            MediaBridge(onImageUrl = onSaveImage, onImageDataUrl = onSaveImageDataUrl),
+            "NativeMedia",
+        )
 
         if (restoredState != null) {
             restoreState(restoredState)

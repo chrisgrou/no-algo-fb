@@ -19,13 +19,69 @@
   var startX = 0;
   var startY = 0;
 
-  function imageAt(x, y) {
+  // Not just <img>: a first version of this only checked tagName === 'IMG' and found
+  // nothing at all on the full-screen photo viewer (reported as long-press doing
+  // literally nothing there) — that view most likely paints the photo as a CSS
+  // background-image on a div instead, for its own pinch/zoom layering. Checking
+  // every element in z-order at the point (not just the topmost) covers both cases,
+  // since either an <img> or a background-image can sit under an interactive overlay
+  // that would otherwise be the only thing elementFromPoint alone returns.
+  function backgroundImageUrl(el) {
+    var bg = getComputedStyle(el).backgroundImage;
+    var match = bg && /url\(["']?([^"')]+)["']?\)/.exec(bg);
+    return match ? match[1] : null;
+  }
+
+  function imageUrlAt(x, y) {
     var stack = document.elementsFromPoint ? document.elementsFromPoint(x, y) : [document.elementFromPoint(x, y)];
     for (var i = 0; i < stack.length; i++) {
-      if (stack[i] && stack[i].tagName === 'IMG' && stack[i].src) return stack[i];
+      var el = stack[i];
+      if (!el) continue;
+      if (el.tagName === 'IMG' && el.src) return el.src;
+      var bgUrl = backgroundImageUrl(el);
+      if (bgUrl) return bgUrl;
     }
     return null;
   }
+
+  // The image's own src isn't always a fetchable http(s) URL: an on-device test of the
+  // "..." menu's own Save button (WebView.setDownloadListener, in MainActivity) failed
+  // with "Expected URL scheme 'http' or 'https'" — the photo viewer had handed it a
+  // blob: URL instead, which only means anything inside the page's own JS context that
+  // created it (via URL.createObjectURL); no native HTTP client can dereference one.
+  // Resolving it here, where that context still exists, and sending the actual bytes
+  // as a data: URL is the only way to save it at all. http(s) URLs skip straight past
+  // this and go to Kotlin as a plain URL — no reason to pull image bytes through this
+  // page's JS and re-encode them as base64 when the native side can just fetch them
+  // directly, and doing that always would multiply memory use for every save.
+  function sendForSave(url) {
+    if (!window.NativeMedia) return;
+    if (url.indexOf('blob:') === 0 || url.indexOf('data:') === 0) {
+      resolveAndSend(url);
+    } else {
+      window.NativeMedia.onImageUrl(url);
+    }
+  }
+
+  function resolveAndSend(url) {
+    fetch(url)
+      .then(function (res) { return res.blob(); })
+      .then(function (blob) {
+        var reader = new FileReader();
+        reader.onloadend = function () {
+          // reader.result is itself a data: URL ("data:image/jpeg;base64,...."),
+          // already exactly what MediaDownloader.saveImageDataUrl expects.
+          window.NativeMedia && window.NativeMedia.onImageDataUrl(String(reader.result));
+        };
+        reader.readAsDataURL(blob);
+      })
+      .catch(function () {});
+  }
+
+  // Exposed for MainActivity's setDownloadListener to call into when Facebook's own
+  // "Save" button (the "..." menu) hands it a blob:/data: URL too — same problem,
+  // same fix, just triggered from the native side instead of a long-press.
+  window.__ffwResolveImageForSave = resolveAndSend;
 
   function cancel() {
     if (timer) {
@@ -45,8 +101,8 @@
     cancel();
     timer = setTimeout(function () {
       timer = null;
-      var img = imageAt(startX, startY);
-      if (img) window.NativeMedia && window.NativeMedia.onImageLongPress(img.src);
+      var url = imageUrlAt(startX, startY);
+      if (url) sendForSave(url);
     }, LONG_PRESS_MS);
   }, { capture: true, passive: true });
 

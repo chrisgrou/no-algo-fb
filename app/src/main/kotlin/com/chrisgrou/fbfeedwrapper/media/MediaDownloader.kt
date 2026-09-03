@@ -6,6 +6,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
+import android.util.Base64
 import android.webkit.CookieManager
 import android.webkit.WebSettings
 import kotlinx.coroutines.Dispatchers
@@ -19,10 +20,12 @@ import okhttp3.Request
  * whole point of "save this photo" is to have it somewhere the user can actually find
  * it afterward, outside the app.
  *
- * Cookies are read straight from CookieManager — the same store WebView itself reads
- * from and keeps logged in across restarts (see MainActivity's persistent-session
- * setup) — and sent along with the request, since Facebook's CDN can 403 an
- * unauthenticated fetch for some image URLs.
+ * Two entry points, for the two kinds of source image_save.js can hand over:
+ * - saveImage(): a plain http(s) URL, fetched natively.
+ * - saveImageDataUrl(): a data: URL already carrying the actual bytes — what a blob:
+ *   source becomes once image_save.js resolves it inside the page's own JS context
+ *   (see that file's own comment on why a blob: URL can't be fetched from here at
+ *   all: it's a page-local reference, not a network resource).
  */
 object MediaDownloader {
 
@@ -45,40 +48,57 @@ object MediaDownloader {
                 if (!response.isSuccessful) error("HTTP ${response.code}")
                 val body = response.body ?: error("Empty response body")
                 val mimeType = body.contentType()?.let { "${it.type}/${it.subtype}" } ?: "image/jpeg"
-                val extension = when {
-                    mimeType.contains("png") -> "png"
-                    mimeType.contains("webp") -> "webp"
-                    mimeType.contains("gif") -> "gif"
-                    else -> "jpg"
-                }
-                val fileName = "sanebook_${System.currentTimeMillis()}.$extension"
-
-                val resolver = context.contentResolver
-                val values = ContentValues().apply {
-                    put(MediaStore.Images.Media.DISPLAY_NAME, fileName)
-                    put(MediaStore.Images.Media.MIME_TYPE, mimeType)
-                    // Below API 29 (no scoped storage), RELATIVE_PATH isn't a real
-                    // column — the framework resolves a default location for a bare
-                    // insert instead. IS_PENDING marks the row "not ready yet" so it
-                    // doesn't show up half-written in the Gallery while still
-                    // downloading; cleared below once the copy finishes.
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                        put(MediaStore.Images.Media.RELATIVE_PATH, "${Environment.DIRECTORY_PICTURES}/SaneBook")
-                        put(MediaStore.Images.Media.IS_PENDING, 1)
-                    }
-                }
-                val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
-                    ?: error("MediaStore.insert returned null")
-
-                resolver.openOutputStream(uri)?.use { out -> body.byteStream().copyTo(out) }
-                    ?: error("Could not open output stream for $uri")
-
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    resolver.update(uri, ContentValues().apply { put(MediaStore.Images.Media.IS_PENDING, 0) }, null, null)
-                }
-
-                uri
+                writeToMediaStore(context, mimeType) { out -> body.byteStream().copyTo(out) }
             }
         }
+    }
+
+    // "data:image/jpeg;base64,<payload>" — a data: URL's own MIME type is right there in
+    // the header, no response to read one from.
+    suspend fun saveImageDataUrl(context: Context, dataUrl: String): Result<Uri> = withContext(Dispatchers.IO) {
+        runCatching {
+            val comma = dataUrl.indexOf(',')
+            if (!dataUrl.startsWith("data:") || comma < 0) error("Not a data: URL")
+            val header = dataUrl.substring(5, comma)
+            if (!header.endsWith(";base64")) error("Unsupported data: URL encoding: $header")
+            val mimeType = header.removeSuffix(";base64").ifBlank { "image/jpeg" }
+            val bytes = Base64.decode(dataUrl.substring(comma + 1), Base64.DEFAULT)
+            writeToMediaStore(context, mimeType) { out -> out.write(bytes) }
+        }
+    }
+
+    private fun writeToMediaStore(context: Context, mimeType: String, writeBody: (java.io.OutputStream) -> Unit): Uri {
+        val extension = when {
+            mimeType.contains("png") -> "png"
+            mimeType.contains("webp") -> "webp"
+            mimeType.contains("gif") -> "gif"
+            else -> "jpg"
+        }
+        val fileName = "sanebook_${System.currentTimeMillis()}.$extension"
+
+        val resolver = context.contentResolver
+        val values = ContentValues().apply {
+            put(MediaStore.Images.Media.DISPLAY_NAME, fileName)
+            put(MediaStore.Images.Media.MIME_TYPE, mimeType)
+            // Below API 29 (no scoped storage), RELATIVE_PATH isn't a real column — the
+            // framework resolves a default location for a bare insert instead.
+            // IS_PENDING marks the row "not ready yet" so it doesn't show up
+            // half-written in the Gallery while still being written; cleared below once
+            // the copy finishes.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                put(MediaStore.Images.Media.RELATIVE_PATH, "${Environment.DIRECTORY_PICTURES}/SaneBook")
+                put(MediaStore.Images.Media.IS_PENDING, 1)
+            }
+        }
+        val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+            ?: error("MediaStore.insert returned null")
+
+        resolver.openOutputStream(uri)?.use(writeBody) ?: error("Could not open output stream for $uri")
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            resolver.update(uri, ContentValues().apply { put(MediaStore.Images.Media.IS_PENDING, 0) }, null, null)
+        }
+
+        return uri
     }
 }
