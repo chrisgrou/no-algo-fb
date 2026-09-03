@@ -551,9 +551,9 @@ private fun createFeedWebView(
         // long-press gesture detection before it ever starts).
         addJavascriptInterface(
             MediaBridge(
-                onImageUrl = onSaveImage,
-                onImageDataUrl = onSaveImageDataUrl,
-                onImageResolveFailed = onImageResolveFailed,
+                onImageUrlCallback = onSaveImage,
+                onImageDataUrlCallback = onSaveImageDataUrl,
+                onImageResolveFailedCallback = onImageResolveFailed,
             ),
             "NativeMedia",
         )
