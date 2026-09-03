@@ -138,10 +138,20 @@
     // for different text each time) rather than creating fresh ones, so this exact
     // node had at some point held different, non-matching text, gotten marked "not a
     // heading" for good, and was later recycled to show this heading without ever
-    // being reconsidered. Un-mark on every mutation type — attribute (the aria-label
-    // case above), childList (Facebook replacing a leaf's text node wholesale), and
-    // characterData (a text node's value edited in place) — so the debounced apply()
-    // below re-classifies whichever node actually changed, however it changed.
+    // being reconsidered.
+    //
+    // A second on-device capture, after the first fix, found the SAME symptom again —
+    // clearing just the mutated node itself (m.target) wasn't enough. Facebook can
+    // recycle a whole subtree in one move (e.g. appending pre-built children to a
+    // container, a single childList mutation whose target is that container), leaving
+    // a descendant leaf's own stale checkedAttr untouched even though it visually now
+    // shows different content. Clearing the whole subtree under the mutated node — not
+    // just the node itself — covers that: any already-checked descendant gets
+    // reconsidered too, however deep the actual recycling happened. Un-marked on every
+    // mutation type — attribute (the aria-label case above), childList (a leaf's text
+    // node replaced wholesale, or a subtree recycled into place), and characterData (a
+    // text node's value edited in place) — so the debounced apply() below re-classifies
+    // whichever node(s) actually changed, however they changed.
     for (var i = 0; i < mutations.length; i++) {
       var m = mutations[i];
       var el = m.target.nodeType === 1 ? m.target : m.target.parentElement;
@@ -150,6 +160,16 @@
       el.removeAttribute(SUGGESTED_CHECKED_ATTR);
       el.removeAttribute(PEOPLE_CHECKED_ATTR);
       el.removeAttribute(CREATORS_CHECKED_ATTR);
+      var stale = el.querySelectorAll(
+        '[' + REACTION_CHECKED_ATTR + '], [' + SUGGESTED_CHECKED_ATTR + '], ' +
+          '[' + PEOPLE_CHECKED_ATTR + '], [' + CREATORS_CHECKED_ATTR + ']',
+      );
+      for (var s = 0; s < stale.length; s++) {
+        stale[s].removeAttribute(REACTION_CHECKED_ATTR);
+        stale[s].removeAttribute(SUGGESTED_CHECKED_ATTR);
+        stale[s].removeAttribute(PEOPLE_CHECKED_ATTR);
+        stale[s].removeAttribute(CREATORS_CHECKED_ATTR);
+      }
     }
     if (timer) return;
     timer = setTimeout(function () {
