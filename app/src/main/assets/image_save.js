@@ -161,16 +161,35 @@
   // this and go to Kotlin as a plain URL — no reason to pull image bytes through this
   // page's JS and re-encode them as base64 when the native side can just fetch them
   // directly, and doing that always would multiply memory use for every save.
-  function sendForSave(url) {
-    log('sendForSave ' + url.substring(0, 60));
+  // Every direct window.NativeMedia.xxx(...) call used to be logged as "sending"
+  // *before* actually making the call — meaning the log would say success even if the
+  // call itself threw or silently failed. An on-device trace confirmed exactly that
+  // gap: "sending data url" logged every time, on both paths, yet zero corresponding
+  // "native: ..." log lines ever appeared (MainActivity.logToJs's own side of this same
+  // shared timeline) — the call into Kotlin was never actually landing, or landing and
+  // failing before logToJs's own entry point, and nothing here could tell which apart.
+  // Now wrapped so the log reflects what actually happened, not just what was
+  // attempted — a JS-side exception calling into the bridge (argument size, a missing
+  // method, …) will show up here even if it also derails everything downstream of it.
+  function callNativeMedia(method, arg) {
     if (!window.NativeMedia) {
-      log('NativeMedia missing, cannot send');
+      log('NativeMedia missing, cannot call ' + method);
       return;
     }
+    try {
+      window.NativeMedia[method](arg);
+      log('NativeMedia.' + method + ' call returned normally, argLength=' + (arg ? arg.length : 0));
+    } catch (e) {
+      log('NativeMedia.' + method + ' threw: ' + (e && (e.message || String(e))));
+    }
+  }
+
+  function sendForSave(url) {
+    log('sendForSave ' + url.substring(0, 60));
     if (url.indexOf('blob:') === 0 || url.indexOf('data:') === 0) {
       resolveAndSend(url);
     } else {
-      window.NativeMedia.onImageUrl(url);
+      callNativeMedia('onImageUrl', url);
     }
   }
 
@@ -178,14 +197,12 @@
     log('reading blob, size=' + blob.size + ' type=' + blob.type);
     var reader = new FileReader();
     reader.onloadend = function () {
-      log('resolveAndSend sending data url, length=' + (reader.result ? String(reader.result).length : 0));
       // reader.result is itself a data: URL ("data:image/jpeg;base64,...."), already
       // exactly what MediaDownloader.saveImageDataUrl expects.
-      window.NativeMedia && window.NativeMedia.onImageDataUrl(String(reader.result));
+      callNativeMedia('onImageDataUrl', reader.result ? String(reader.result) : '');
     };
     reader.onerror = function () {
-      log('resolveAndSend FileReader error');
-      window.NativeMedia && window.NativeMedia.onImageResolveFailed('FileReader error');
+      callNativeMedia('onImageResolveFailed', 'FileReader error');
     };
     reader.readAsDataURL(blob);
   }
@@ -210,7 +227,7 @@
       .catch(function (err) {
         var reason = String((err && err.message) || err);
         log('resolveAndSend fetch failed: ' + reason);
-        window.NativeMedia && window.NativeMedia.onImageResolveFailed(reason);
+        callNativeMedia('onImageResolveFailed', reason);
       });
   }
 
@@ -269,8 +286,8 @@
       // if this still never appears, the timer/touch handling itself isn't the issue.
       if (url) {
         sendForSave(url);
-      } else if (window.NativeMedia) {
-        window.NativeMedia.onImageResolveFailed('Δεν βρέθηκε εικόνα σε αυτό το σημείο');
+      } else {
+        callNativeMedia('onImageResolveFailed', 'Δεν βρέθηκε εικόνα σε αυτό το σημείο');
       }
     }, LONG_PRESS_MS);
   }, { capture: true, passive: true });
