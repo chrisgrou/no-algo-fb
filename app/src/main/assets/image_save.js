@@ -43,11 +43,25 @@
   // any user action could trigger Facebook's own Save flow, so nothing created after
   // this point is missed.
   var blobRegistry = {};
+  // The most recently created image blob — a fallback guess for "the photo currently
+  // being viewed" when the long-press point-based DOM search below comes up empty. The
+  // download-anchor blob this registry was built for proved the fix works at all (the
+  // "..." Save button now reads it straight from here); if the full-screen viewer's own
+  // <img> is *also* blob-backed, as seems likely given how blob-heavy this flow already
+  // is, this catches it without needing to find that element in the DOM at all — sidestepping
+  // whatever's stopping elementsFromPoint from seeing it (still unexplained: every
+  // long-press trace so far found only shallow, unrelated elements at the touch point,
+  // consistently, regardless of where on screen it was).
+  var lastImageBlobUrl = null;
   var nativeCreateObjectURL = URL.createObjectURL;
   URL.createObjectURL = function (obj) {
     var url = nativeCreateObjectURL.call(URL, obj);
     try {
       blobRegistry[url] = obj;
+      if (obj && typeof obj.type === 'string' && obj.type.indexOf('image/') === 0) {
+        lastImageBlobUrl = url;
+        log('createObjectURL image blob, size=' + obj.size + ' type=' + obj.type + ' url=' + url.substring(0, 60));
+      }
     } catch (e) {}
     return url;
   };
@@ -123,6 +137,15 @@
       }
     }
     if (best) return best.src;
+
+    // Last resort: the most recent image blob created at all (see lastImageBlobUrl's
+    // own comment), regardless of whether any element on screen currently references
+    // it — only reached once both the point-based and on-screen-<img> searches above
+    // have already come up empty.
+    if (lastImageBlobUrl) {
+      log('nothing matched at point or on screen; falling back to last image blob ' + lastImageBlobUrl.substring(0, 60));
+      return lastImageBlobUrl;
+    }
 
     log('nothing matched at point; stack=[' + describeStack(stack) + '] blobImgCount=' + blobImgs.length);
     return null;
