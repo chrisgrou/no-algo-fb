@@ -103,8 +103,12 @@
     applyHeadingBlock('Suggested for you', SUGGESTED_CHECKED_ATTR, SUGGESTED_MARK_ATTR, enabled);
   }
 
+  // On-device HTML capture found the real heading text is title-cased —
+  // "People You May Know" — not the sentence-case guess this originally checked
+  // for, so applyHeadingBlock's exact-text comparison never matched and this block
+  // never got marked at all, regardless of the toggle.
   function applyPeopleYouMayKnow(enabled) {
-    applyHeadingBlock('People you may know', PEOPLE_CHECKED_ATTR, PEOPLE_MARK_ATTR, enabled);
+    applyHeadingBlock('People You May Know', PEOPLE_CHECKED_ATTR, PEOPLE_MARK_ATTR, enabled);
   }
 
   function applyCreators(enabled) {
